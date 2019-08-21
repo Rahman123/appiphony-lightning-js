@@ -46,7 +46,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var searchMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option">' +
+			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option" tabindex="1">' +
 				'<svg aria-hidden="true" class="slds-icon slds-icon--x-small slds-icon-text-default">' +
 					'<use xlink:href="{{assetsLocation}}/assets/icons/utility-sprite/svg/symbols.svg#search"></use>' +
 				'</svg>' +
@@ -58,7 +58,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var newItemMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option">' +
+			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option" tabindex="1">' +
 				'<svg aria-hidden="true" class="slds-icon slds-icon--x-small slds-icon-text-default">' +
 					'<use xlink:href="{{assetsLocation}}/assets/icons/utility-sprite/svg/symbols.svg#add"></use>' +
 				'</svg>' +
@@ -68,7 +68,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var lookupResultItemMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-media slds-media--center" id="{{resultId}}" role="option" tabindex="1">' +
+			'<span class="slds-lookup__item-action slds-media" id="{{resultId}}" role="option" tabindex="1">' +
 				'<svg aria-hidden="true" class="{{objectIconClass}} slds-icon slds-icon--small slds-media__figure{{hasIcon}}">' +
 					'<use xlink:href="{{objectIconUrl}}"></use>' +
 				'</svg>' +
@@ -81,7 +81,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var customLookupResultItemMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-media slds-media--center" id="{{resultId}}" role="option" tabindex="1">' +
+			'<span class="slds-lookup__item-action slds-media" id="{{resultId}}" role="option" tabindex="1">' +
                 '<img class="{{objectIconClass}} slds-icon slds-icon--small slds-media__figure{{hasIcon}}" src="{{objectIconUrl}}"/>' +
                 '<div class="slds-media__body">' +
                     '<div class="slds-lookup__result-text">{{resultLabel}}</div>' +
@@ -101,8 +101,15 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
        	if (this.isSingle) {
        		this.$singleSelect = $(selectContainerMarkup).insertBefore(this.$el);
        	} else {
-       		this.$multiSelect = $(selectContainerMarkup).appendTo(this.$lookupContainer.find('.slds-form-element'));
+       		this.$multiSelect = $(selectContainerMarkup).insertAfter(this.$lookupContainer.find('.slds-form-element__label'));
        		this.selectedResults = []; // We'll have to initialize.
+            
+            this.$multiSelect.css({
+                'padding': 0,
+                'margin-top': '-2px',
+                'margin-left': '-2px',
+                'border': 'none'
+            });
        	}
         
         if (!this.isStringEmpty(options.searchTerm)) {
@@ -115,6 +122,46 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         this.initLookup();
     };
     
+    var handleResultsKeyup = function(e) {
+        var $currentTarget = $(e.currentTarget);
+        
+        $currentTarget.removeClass('slds-has-focus');
+        
+        if (e.which === 38 || e.which === 40) { // Up or down arrow, respectively
+            e.preventDefault();
+            
+            var firstItemSelector = ($('.slds-lookup .slds-lookup__list > li:first-child').is('.slds-lookup__item--label')) ? '.slds-lookup .slds-lookup__list > li:nth-child(2) .slds-lookup__item-action' : '.slds-lookup .slds-lookup__list > li:first-child .slds-lookup__item-action';
+            
+            if (e.which === 38) { // Up arrow
+                if ($currentTarget.is(firstItemSelector)) { // Pressing up on the first item, loop over
+                    $('.slds-lookup .slds-lookup__list > li:last-child .slds-lookup__item-action')
+                        .focus()
+                        .addClass('slds-has-focus');
+                } else {
+                    $currentTarget.closest('li')
+                        .prev()
+                        .find('.slds-lookup__item-action')
+                        .focus()
+                        .addClass('slds-has-focus');
+                }
+            } else { // Down arrow
+                if ($currentTarget.is('.slds-lookup .slds-lookup__list > li:last-child .slds-lookup__item-action')) { // Pressing down on the last item, loop over
+                    $(firstItemSelector)
+                        .focus()
+                        .addClass('slds-has-focus');
+                } else {
+                    $currentTarget.closest('li')
+                        .next()
+                        .find('.slds-lookup__item-action')
+                        .focus()
+                        .addClass('slds-has-focus');
+                }
+            }
+        } else if (e.which === 13) { // Return key
+            $currentTarget.click();
+        }
+    }
+    
     Lookup.prototype = {
         constructor: Lookup,
         isStringEmpty: function(stringVal) {
@@ -125,7 +172,20 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
         	this.$el.on('focus', this, this.runSearch)
                 .on('blur', this, this.handleBlur)
-                .on('keyup', this, this.runSearch);
+                .on('keyup', this, this.handleKeyup);
+            
+            // Prevent multiple bindings
+            $('body').off('keyup', '.slds-lookup .slds-lookup__list .slds-lookup__item-action', handleResultsKeyup);
+            $('body').on('keyup', '.slds-lookup .slds-lookup__list .slds-lookup__item-action', handleResultsKeyup);
+        },
+        handleKeyup: function(e) {
+            if (e.which === 40) { // Down arrow
+                $('.slds-lookup .slds-lookup__list .slds-lookup__item-action').first()
+                    .focus()
+                    .addClass('slds-has-focus');
+            } else {
+                e.data.runSearch(e);
+            }
         },
         runSearch: function(e) {
             var self = e.data;
@@ -159,20 +219,29 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                         .replace('{{assetsLocation}}', self.settings.assetsLocation)
                         .replace(/{{objectLabel}}/g, self.settings.objectLabel)
                         .replace(/{{selectedResultLabel}}/g, result.label));
-        			$pill.removeClass('slds-pill--bare')
+                    
+        			$pill.removeClass('slds-size--1-of-1')
                         .attr('id', result.id)
-                        .on('click', 'a, button', self, self.clearMultiSelectResult);
+                        .on('click', 'a, button', self, self.clearMultiSelectResult)
+                        .css({
+                            'margin': '2px',
+                            'display': 'inline-flex'
+                        })
+                        .find('.slds-pill__remove')
+                        .css({
+                            'vertical-align': '1px',
+                            'margin-left': '0.25rem'
+                        });
+                    
         			$multiSelect.append($pill);
         		});
                 
         		$multiSelect.addClass('slds-show')
                     .removeClass('slds-hide');
-        		$lookupContainer.addClass('slds-has-selection');
         	} else {
         		$multiSelect.html('');
         		$multiSelect.addClass('slds-hide')
                     .removeClass('slds-show');
-        		$lookupContainer.removeClass('slds-has-selection');
         	}
         },
         setSingleSelect: function(selectedResultLabel) {
@@ -200,7 +269,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     .removeClass('slds-show');
                 
         		this.$el.val('')
-        			.removeClass('slds-hide')
+        			.removeClass('slds-hide');
+                
         		this.$lookupContainer.removeClass('slds-has-selection');
                 
         		setTimeout(function() {
@@ -300,6 +370,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         		var $newItem = $resultsListContainer.append(newItemMarkup
                     .replace('{{objectLabel}}', this.settings.objectLabel)
                     .replace('{{assetsLocation}}', $.aljs.assetsLocation));
+                
                 $newItem.next().on('click', function() {
                     $newItem.off('click');
                     
@@ -309,14 +380,16 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             
         	$resultsListContainer.one('click', '.slds-lookup__item-action[id]', this, this.clickResult)
             
-            var shouldAppendSearchContainer = this.searchResults.length > 0 || this.settings.onClickNew || showUseSection;
+            this.$lookupSearchContainer = $lookupSearchContainer.appendTo(this.$lookupContainer);
             
-            if (shouldAppendSearchContainer) {
-                this.$lookupSearchContainer = $lookupSearchContainer;
-                $lookupSearchContainer.appendTo(this.$lookupContainer);
+            var shouldShowSearchContainer = (this.searchResults.length > 0 && this.$el.closest('.slds-form-element').find('.slds-lookup__list > li').length > 0) || this.settings.onClickNew || showUseSection;
+            
+            if (shouldShowSearchContainer) {
                 this.$el.attr('aria-expanded', 'true')
                     .closest('.slds-lookup')
                     .addClass('slds-is-open');
+            } else {
+                this.$lookupSearchContainer.remove();
             }
         },
         closeSearchDropdown: function() {
@@ -331,14 +404,11 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                 .removeClass('slds-is-open');
         },
         handleBlur: function(e) {
-            var event = e;
         	var self = e.data;
             
-            setTimeout(function() {
-            	if ($(event.relatedTarget).closest('.slds-lookup.slds-is-open').length === 0 && self.$lookupSearchContainer) {
-            		self.closeSearchDropdown();
-            	}
-            }, 250);
+            if ($(e.relatedTarget).closest('.slds-lookup.slds-is-open').length === 0 && self.$lookupSearchContainer) {
+                self.closeSearchDropdown();
+            }
         },
         clickResult: function(e) {
         	var self = e.data;
@@ -379,6 +449,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         	var $clickedPill = $(this).closest('span.slds-pill');
         	var resultId = $clickedPill.attr('id');
         	var indexToRemove;
+            
+            self.closeSearchDropdown();
             
         	self.selectedResults.forEach(function(result, index) {
         		if (result.id == resultId) {

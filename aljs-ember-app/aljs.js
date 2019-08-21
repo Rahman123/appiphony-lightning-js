@@ -65,6 +65,7 @@ App.AljsView = Ember.View.extend({
             hasDropdown = $('.aljs-has-nav-dropdown'),
             dropdown = $('.aljs-nav-dropdown'),
             dropdownLink = $('.aljs-nav-dropdown > li a'),
+            notification = $('.js-notification'),
             documentBody = $('body');
         
         if ($('li.slds-is-active', dropdown).length > 0) {
@@ -73,6 +74,16 @@ App.AljsView = Ember.View.extend({
                 .closest('li')
                 .addClass('selected');
         }
+        
+        notification.removeClass('show');
+
+        setTimeout(function() {
+            notification.addClass('show');
+        }, 1000);
+
+        $('body').on('click', '.js-notification .js-close-button', function() {
+            $('.js-notification').removeClass('show');
+        });
 
         mobileNavLink.click(function(e) {
             e.preventDefault();

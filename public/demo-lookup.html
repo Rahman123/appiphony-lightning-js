@@ -17,7 +17,7 @@
 </head>
 
 <body>
-    <div class="slds">
+    <div class="slds-scope">
         <p class="slds-text-heading--small slds-m-bottom--x-small">Passing in an Items List</p>
         <div class="slds-form-element slds-lookup" data-select="single" data-scope="single">
             <label class="slds-form-element__label" for="lookup-01">Objects</label>
@@ -38,7 +38,7 @@
                 <input id="lookup-02" class="slds-lookup__search-input slds-input" type="text" aria-autocomplete="list" role="combobox" aria-expanded="false" aria-activedescendant="" placeholder="Search Things" />
             </div>
         </div>
-		<!--<div class="slds-lookup" data-select="multi" data-scope="single" data-typeahead="true">
+		<!--<div class="slds-lookup" data-select="multi" data-scope="single">
             <p class="slds-text-heading--small slds-m-bottom--x-small slds-m-top--large">Multi Select Lookup</p>
 			<div class="slds-form-element">
 				<label class="slds-form-element__label" for="lookup-03">Entities</label>
@@ -122,14 +122,6 @@
         		objectLabel: 'Thing',
         		objectIconUrl: 'assets/icons/standard-sprite/svg/symbols.svg#account',
                 objectIconClass: 'slds-icon-standard-account',
-        		emptySearchTermQuery: function(callback) {
-        			callback(results);
-        		},
-        		filledSearchTermQuery: function(searchTerm, callback) {
-        			callback(results.filter(function(result) {
-        				return result.label.match(searchTerm) !== null;
-        			}));
-        		},
                 initialSelection: { id: 'ajax-result-1', label: 'AJAX Result 1' },
         		onClickNew: function() {
         			console.log('redirect or run something');

@@ -1,5 +1,5 @@
 //! moment.js
-//! version : 2.17.1
+//! version : 2.18.1
 //! authors : Tim Wood, Iskren Chernev, Moment.js contributors
 //! license : MIT
 //! momentjs.com
@@ -39,6 +39,10 @@ function isObjectEmpty(obj) {
         return false;
     }
     return true;
+}
+
+function isUndefined(input) {
+    return input === void 0;
 }
 
 function isNumber(input) {
@@ -97,7 +101,9 @@ function defaultParsingFlags() {
         userInvalidated : false,
         iso             : false,
         parsedDateParts : [],
-        meridiem        : null
+        meridiem        : null,
+        rfc2822         : false,
+        weekdayMismatch : false
     };
 }
 
@@ -173,10 +179,6 @@ function createInvalid (flags) {
     return m;
 }
 
-function isUndefined(input) {
-    return input === void 0;
-}
-
 // Plugins that add properties should also add the key here (null value),
 // so we can properly clone ourselves.
 var momentProperties = hooks.momentProperties = [];
@@ -216,7 +218,7 @@ function copyConfig(to, from) {
     }
 
     if (momentProperties.length > 0) {
-        for (i in momentProperties) {
+        for (i = 0; i < momentProperties.length; i++) {
             prop = momentProperties[i];
             val = from[prop];
             if (!isUndefined(val)) {
@@ -353,8 +355,11 @@ function set (config) {
     }
     this._config = config;
     // Lenient ordinal parsing accepts just a number in addition to
-    // number + (possibly) stuff coming from _ordinalParseLenient.
-    this._ordinalParseLenient = new RegExp(this._ordinalParse.source + '|' + (/\d{1,2}/).source);
+    // number + (possibly) stuff coming from _dayOfMonthOrdinalParse.
+    // TODO: Remove "ordinalParse" fallback in next major release.
+    this._dayOfMonthOrdinalParseLenient = new RegExp(
+        (this._dayOfMonthOrdinalParse.source || this._ordinalParse.source) +
+            '|' + (/\d{1,2}/).source);
 }
 
 function mergeConfigs(parentConfig, childConfig) {
@@ -452,7 +457,7 @@ function invalidDate () {
 }
 
 var defaultOrdinal = '%d';
-var defaultOrdinalParse = /\d{1,2}/;
+var defaultDayOfMonthOrdinalParse = /\d{1,2}/;
 
 function ordinal (number) {
     return this._ordinal.replace('%d', number);
@@ -462,6 +467,7 @@ var defaultRelativeTime = {
     future : 'in %s',
     past   : '%s ago',
     s  : 'a few seconds',
+    ss : '%d seconds',
     m  : 'a minute',
     mm : '%d minutes',
     h  : 'an hour',
@@ -644,7 +650,7 @@ function makeFormatFunction(format) {
     return function (mom) {
         var output = '', i;
         for (i = 0; i < length; i++) {
-            output += array[i] instanceof Function ? array[i].call(mom, format) : array[i];
+            output += isFunction(array[i]) ? array[i].call(mom, format) : array[i];
         }
         return output;
     };
@@ -847,7 +853,8 @@ var MONTHS_IN_FORMAT = /D[oD]?(\[[^\[\]]*\]|\s)+MMMM?/;
 var defaultLocaleMonths = 'January_February_March_April_May_June_July_August_September_October_November_December'.split('_');
 function localeMonths (m, format) {
     if (!m) {
-        return this._months;
+        return isArray(this._months) ? this._months :
+            this._months['standalone'];
     }
     return isArray(this._months) ? this._months[m.month()] :
         this._months[(this._months.isFormat || MONTHS_IN_FORMAT).test(format) ? 'format' : 'standalone'][m.month()];
@@ -856,7 +863,8 @@ function localeMonths (m, format) {
 var defaultLocaleMonthsShort = 'Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec'.split('_');
 function localeMonthsShort (m, format) {
     if (!m) {
-        return this._monthsShort;
+        return isArray(this._monthsShort) ? this._monthsShort :
+            this._monthsShort['standalone'];
     }
     return isArray(this._monthsShort) ? this._monthsShort[m.month()] :
         this._monthsShort[MONTHS_IN_FORMAT.test(format) ? 'format' : 'standalone'][m.month()];
@@ -1123,11 +1131,11 @@ function getIsLeapYear () {
 }
 
 function createDate (y, m, d, h, M, s, ms) {
-    //can't just apply() to create a date:
-    //http://stackoverflow.com/questions/181348/instantiating-a-javascript-object-by-calling-prototype-constructor-apply
+    // can't just apply() to create a date:
+    // https://stackoverflow.com/q/181348
     var date = new Date(y, m, d, h, M, s, ms);
 
-    //the date constructor remaps years 0-99 to 1900-1999
+    // the date constructor remaps years 0-99 to 1900-1999
     if (y < 100 && y >= 0 && isFinite(date.getFullYear())) {
         date.setFullYear(y);
     }
@@ -1137,7 +1145,7 @@ function createDate (y, m, d, h, M, s, ms) {
 function createUTCDate (y) {
     var date = new Date(Date.UTC.apply(null, arguments));
 
-    //the Date.UTC function remaps years 0-99 to 1900-1999
+    // the Date.UTC function remaps years 0-99 to 1900-1999
     if (y < 100 && y >= 0 && isFinite(date.getUTCFullYear())) {
         date.setUTCFullYear(y);
     }
@@ -1154,7 +1162,7 @@ function firstWeekOffset(year, dow, doy) {
     return -fwdlw + fwd - 1;
 }
 
-//http://en.wikipedia.org/wiki/ISO_week_date#Calculating_a_date_given_the_year.2C_week_number_and_weekday
+// https://en.wikipedia.org/wiki/ISO_week_date#Calculating_a_date_given_the_year.2C_week_number_and_weekday
 function dayOfYearFromWeeks(year, week, weekday, dow, doy) {
     var localWeekday = (7 + weekday - dow) % 7,
         weekOffset = firstWeekOffset(year, dow, doy),
@@ -1355,7 +1363,8 @@ function parseIsoWeekday(input, locale) {
 var defaultLocaleWeekdays = 'Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday'.split('_');
 function localeWeekdays (m, format) {
     if (!m) {
-        return this._weekdays;
+        return isArray(this._weekdays) ? this._weekdays :
+            this._weekdays['standalone'];
     }
     return isArray(this._weekdays) ? this._weekdays[m.day()] :
         this._weekdays[this._weekdays.isFormat.test(format) ? 'format' : 'standalone'][m.day()];
@@ -1675,8 +1684,10 @@ addRegexToken('a',  matchMeridiem);
 addRegexToken('A',  matchMeridiem);
 addRegexToken('H',  match1to2);
 addRegexToken('h',  match1to2);
+addRegexToken('k',  match1to2);
 addRegexToken('HH', match1to2, match2);
 addRegexToken('hh', match1to2, match2);
+addRegexToken('kk', match1to2, match2);
 
 addRegexToken('hmm', match3to4);
 addRegexToken('hmmss', match5to6);
@@ -1684,6 +1695,10 @@ addRegexToken('Hmm', match3to4);
 addRegexToken('Hmmss', match5to6);
 
 addParseToken(['H', 'HH'], HOUR);
+addParseToken(['k', 'kk'], function (input, array, config) {
+    var kInput = toInt(input);
+    array[HOUR] = kInput === 24 ? 0 : kInput;
+});
 addParseToken(['a', 'A'], function (input, array, config) {
     config._isPm = config._locale.isPM(input);
     config._meridiem = input;
@@ -1754,7 +1769,7 @@ var baseConfig = {
     longDateFormat: defaultLongDateFormat,
     invalidDate: defaultInvalidDate,
     ordinal: defaultOrdinal,
-    ordinalParse: defaultOrdinalParse,
+    dayOfMonthOrdinalParse: defaultDayOfMonthOrdinalParse,
     relativeTime: defaultRelativeTime,
 
     months: defaultLocaleMonths,
@@ -2065,6 +2080,77 @@ function configFromISO(config) {
     }
 }
 
+// RFC 2822 regex: For details see https://tools.ietf.org/html/rfc2822#section-3.3
+var basicRfcRegex = /^((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s)?(\d?\d\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s(?:\d\d)?\d\d\s)(\d\d:\d\d)(\:\d\d)?(\s(?:UT|GMT|[ECMP][SD]T|[A-IK-Za-ik-z]|[+-]\d{4}))$/;
+
+// date and time from ref 2822 format
+function configFromRFC2822(config) {
+    var string, match, dayFormat,
+        dateFormat, timeFormat, tzFormat;
+    var timezones = {
+        ' GMT': ' +0000',
+        ' EDT': ' -0400',
+        ' EST': ' -0500',
+        ' CDT': ' -0500',
+        ' CST': ' -0600',
+        ' MDT': ' -0600',
+        ' MST': ' -0700',
+        ' PDT': ' -0700',
+        ' PST': ' -0800'
+    };
+    var military = 'YXWVUTSRQPONZABCDEFGHIKLM';
+    var timezone, timezoneIndex;
+
+    string = config._i
+        .replace(/\([^\)]*\)|[\n\t]/g, ' ') // Remove comments and folding whitespace
+        .replace(/(\s\s+)/g, ' ') // Replace multiple-spaces with a single space
+        .replace(/^\s|\s$/g, ''); // Remove leading and trailing spaces
+    match = basicRfcRegex.exec(string);
+
+    if (match) {
+        dayFormat = match[1] ? 'ddd' + ((match[1].length === 5) ? ', ' : ' ') : '';
+        dateFormat = 'D MMM ' + ((match[2].length > 10) ? 'YYYY ' : 'YY ');
+        timeFormat = 'HH:mm' + (match[4] ? ':ss' : '');
+
+        // TODO: Replace the vanilla JS Date object with an indepentent day-of-week check.
+        if (match[1]) { // day of week given
+            var momentDate = new Date(match[2]);
+            var momentDay = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][momentDate.getDay()];
+
+            if (match[1].substr(0,3) !== momentDay) {
+                getParsingFlags(config).weekdayMismatch = true;
+                config._isValid = false;
+                return;
+            }
+        }
+
+        switch (match[5].length) {
+            case 2: // military
+                if (timezoneIndex === 0) {
+                    timezone = ' +0000';
+                } else {
+                    timezoneIndex = military.indexOf(match[5][1].toUpperCase()) - 12;
+                    timezone = ((timezoneIndex < 0) ? ' -' : ' +') +
+                        (('' + timezoneIndex).replace(/^-?/, '0')).match(/..$/)[0] + '00';
+                }
+                break;
+            case 4: // Zone
+                timezone = timezones[match[5]];
+                break;
+            default: // UT or +/-9999
+                timezone = timezones[' GMT'];
+        }
+        match[5] = timezone;
+        config._i = match.splice(1).join('');
+        tzFormat = ' ZZ';
+        config._f = dayFormat + dateFormat + timeFormat + tzFormat;
+        configFromStringAndFormat(config);
+        getParsingFlags(config).rfc2822 = true;
+    } else {
+        config._isValid = false;
+    }
+}
+
 // date from iso format or fallback
 function configFromString(config) {
     var matched = aspNetJsonRegex.exec(config._i);
@@ -2077,13 +2163,24 @@ function configFromString(config) {
     configFromISO(config);
     if (config._isValid === false) {
         delete config._isValid;
-        hooks.createFromInputFallback(config);
+    } else {
+        return;
     }
+
+    configFromRFC2822(config);
+    if (config._isValid === false) {
+        delete config._isValid;
+    } else {
+        return;
+    }
+
+    // Final attempt, use Input Fallback
+    hooks.createFromInputFallback(config);
 }
 
 hooks.createFromInputFallback = deprecate(
-    'value provided is not in a recognized ISO format. moment construction falls back to js Date(), ' +
-    'which is not reliable across all browsers and versions. Non ISO date formats are ' +
+    'value provided is not in a recognized RFC2822 or ISO format. moment construction falls back to js Date(), ' +
+    'which is not reliable across all browsers and versions. Non RFC2822/ISO date formats are ' +
     'discouraged and will be removed in an upcoming major release. Please refer to ' +
     'http://momentjs.com/guides/#/warnings/js-date/ for more info.',
     function (config) {
@@ -2130,10 +2227,10 @@ function configFromArray (config) {
     }
 
     //if the day of the year is set, figure out what it is
-    if (config._dayOfYear) {
+    if (config._dayOfYear != null) {
         yearToUse = defaults(config._a[YEAR], currentDate[YEAR]);
 
-        if (config._dayOfYear > daysInYear(yearToUse)) {
+        if (config._dayOfYear > daysInYear(yearToUse) || config._dayOfYear === 0) {
             getParsingFlags(config)._overflowDayOfYear = true;
         }
 
@@ -2237,6 +2334,9 @@ function dayOfYearFromWeekInfo(config) {
 // constant that refers to the ISO standard
 hooks.ISO_8601 = function () {};
 
+// constant that refers to the RFC 2822 form
+hooks.RFC_2822 = function () {};
+
 // date from string and format string
 function configFromStringAndFormat(config) {
     // TODO: Move this to another part of the creation flow to prevent circular deps
@@ -2244,7 +2344,10 @@ function configFromStringAndFormat(config) {
         configFromISO(config);
         return;
     }
-
+    if (config._f === hooks.RFC_2822) {
+        configFromRFC2822(config);
+        return;
+    }
     config._a = [];
     getParsingFlags(config).empty = true;
 
@@ -2436,7 +2539,7 @@ function prepareConfig (config) {
 
 function configFromInput(config) {
     var input = config._i;
-    if (input === undefined) {
+    if (isUndefined(input)) {
         config._d = new Date(hooks.now());
     } else if (isDate(input)) {
         config._d = new Date(input.valueOf());
@@ -2447,7 +2550,7 @@ function configFromInput(config) {
             return parseInt(obj, 10);
         });
         configFromArray(config);
-    } else if (typeof(input) === 'object') {
+    } else if (isObject(input)) {
         configFromObject(config);
     } else if (isNumber(input)) {
         // from milliseconds
@@ -2548,6 +2651,38 @@ var now = function () {
     return Date.now ? Date.now() : +(new Date());
 };
 
+var ordering = ['year', 'quarter', 'month', 'week', 'day', 'hour', 'minute', 'second', 'millisecond'];
+
+function isDurationValid(m) {
+    for (var key in m) {
+        if (!(ordering.indexOf(key) !== -1 && (m[key] == null || !isNaN(m[key])))) {
+            return false;
+        }
+    }
+
+    var unitHasDecimal = false;
+    for (var i = 0; i < ordering.length; ++i) {
+        if (m[ordering[i]]) {
+            if (unitHasDecimal) {
+                return false; // only allow non-integers for smallest unit
+            }
+            if (parseFloat(m[ordering[i]]) !== toInt(m[ordering[i]])) {
+                unitHasDecimal = true;
+            }
+        }
+    }
+
+    return true;
+}
+
+function isValid$1() {
+    return this._isValid;
+}
+
+function createInvalid$1() {
+    return createDuration(NaN);
+}
+
 function Duration (duration) {
     var normalizedInput = normalizeObjectUnits(duration),
         years = normalizedInput.year || 0,
@@ -2559,6 +2694,8 @@ function Duration (duration) {
         minutes = normalizedInput.minute || 0,
         seconds = normalizedInput.second || 0,
         milliseconds = normalizedInput.millisecond || 0;
+
+    this._isValid = isDurationValid(normalizedInput);
 
     // representation for dateAddRemove
     this._milliseconds = +milliseconds +
@@ -2683,7 +2820,7 @@ hooks.updateOffset = function () {};
 // a second time. In case it wants us to change the offset again
 // _changeInProgress == true case, then we have to adjust, because
 // there is no such time in the given timezone.
-function getSetOffset (input, keepLocalTime) {
+function getSetOffset (input, keepLocalTime, keepMinutes) {
     var offset = this._offset || 0,
         localAdjust;
     if (!this.isValid()) {
@@ -2695,7 +2832,7 @@ function getSetOffset (input, keepLocalTime) {
             if (input === null) {
                 return this;
             }
-        } else if (Math.abs(input) < 16) {
+        } else if (Math.abs(input) < 16 && !keepMinutes) {
             input = input * 60;
         }
         if (!this._isUTC && keepLocalTime) {
@@ -2753,7 +2890,7 @@ function setOffsetToLocal (keepLocalTime) {
 
 function setOffsetToParsedOffset () {
     if (this._tzm != null) {
-        this.utcOffset(this._tzm);
+        this.utcOffset(this._tzm, false, true);
     } else if (typeof this._i === 'string') {
         var tZone = offsetFromString(matchOffset, this._i);
         if (tZone != null) {
@@ -2885,6 +3022,7 @@ function createDuration (input, key) {
 }
 
 createDuration.fn = Duration.prototype;
+createDuration.invalid = createInvalid$1;
 
 function parseIso (inp, sign) {
     // We'd normally use ~~inp for this, but unfortunately it also
@@ -3121,18 +3259,19 @@ function toString () {
     return this.clone().locale('en').format('ddd MMM DD YYYY HH:mm:ss [GMT]ZZ');
 }
 
-function toISOString () {
+function toISOString() {
+    if (!this.isValid()) {
+        return null;
+    }
     var m = this.clone().utc();
-    if (0 < m.year() && m.year() <= 9999) {
-        if (isFunction(Date.prototype.toISOString)) {
-            // native implementation is ~50x faster, use it when we can
-            return this.toDate().toISOString();
-        } else {
-            return formatMoment(m, 'YYYY-MM-DD[T]HH:mm:ss.SSS[Z]');
-        }
-    } else {
+    if (m.year() < 0 || m.year() > 9999) {
         return formatMoment(m, 'YYYYYY-MM-DD[T]HH:mm:ss.SSS[Z]');
     }
+    if (isFunction(Date.prototype.toISOString)) {
+        // native implementation is ~50x faster, use it when we can
+        return this.toDate().toISOString();
+    }
+    return formatMoment(m, 'YYYY-MM-DD[T]HH:mm:ss.SSS[Z]');
 }
 
 /**
@@ -3152,7 +3291,7 @@ function inspect () {
         zone = 'Z';
     }
     var prefix = '[' + func + '("]';
-    var year = (0 < this.year() && this.year() <= 9999) ? 'YYYY' : 'YYYYYY';
+    var year = (0 <= this.year() && this.year() <= 9999) ? 'YYYY' : 'YYYYYY';
     var datetime = '-MM-DD[T]HH:mm:ss.SSS';
     var suffix = zone + '[")]';
 
@@ -3320,7 +3459,7 @@ function toJSON () {
     return this.isValid() ? this.toISOString() : null;
 }
 
-function isValid$1 () {
+function isValid$2 () {
     return isValid(this);
 }
 
@@ -3480,7 +3619,10 @@ addUnitPriority('date', 9);
 addRegexToken('D',  match1to2);
 addRegexToken('DD', match1to2, match2);
 addRegexToken('Do', function (isStrict, locale) {
-    return isStrict ? locale._ordinalParse : locale._ordinalParseLenient;
+    // TODO: Remove "ordinalParse" fallback in next major release.
+    return isStrict ?
+      (locale._dayOfMonthOrdinalParse || locale._ordinalParse) :
+      locale._dayOfMonthOrdinalParseLenient;
 });
 
 addParseToken(['D', 'DD'], DATE);
@@ -3660,7 +3802,7 @@ proto.isBetween         = isBetween;
 proto.isSame            = isSame;
 proto.isSameOrAfter     = isSameOrAfter;
 proto.isSameOrBefore    = isSameOrBefore;
-proto.isValid           = isValid$1;
+proto.isValid           = isValid$2;
 proto.lang              = lang;
 proto.locale            = locale;
 proto.localeData        = localeData;
@@ -3885,7 +4027,7 @@ function listWeekdaysMin (localeSorted, format, index) {
 }
 
 getSetGlobalLocale('en', {
-    ordinalParse: /\d{1,2}(th|st|nd|rd)/,
+    dayOfMonthOrdinalParse: /\d{1,2}(th|st|nd|rd)/,
     ordinal : function (number) {
         var b = number % 10,
             output = (toInt(number % 100 / 10) === 1) ? 'th' :
@@ -4006,6 +4148,9 @@ function monthsToDays (months) {
 }
 
 function as (units) {
+    if (!this.isValid()) {
+        return NaN;
+    }
     var days;
     var months;
     var milliseconds = this._milliseconds;
@@ -4034,6 +4179,9 @@ function as (units) {
 
 // TODO: Use this.as('ms')?
 function valueOf$1 () {
+    if (!this.isValid()) {
+        return NaN;
+    }
     return (
         this._milliseconds +
         this._days * 864e5 +
@@ -4059,12 +4207,12 @@ var asYears        = makeAs('y');
 
 function get$2 (units) {
     units = normalizeUnits(units);
-    return this[units + 's']();
+    return this.isValid() ? this[units + 's']() : NaN;
 }
 
 function makeGetter(name) {
     return function () {
-        return this._data[name];
+        return this.isValid() ? this._data[name] : NaN;
     };
 }
 
@@ -4082,11 +4230,12 @@ function weeks () {
 
 var round = Math.round;
 var thresholds = {
-    s: 45,  // seconds to minute
-    m: 45,  // minutes to hour
-    h: 22,  // hours to day
-    d: 26,  // days to month
-    M: 11   // months to year
+    ss: 44,         // a few seconds to seconds
+    s : 45,         // seconds to minute
+    m : 45,         // minutes to hour
+    h : 22,         // hours to day
+    d : 26,         // days to month
+    M : 11          // months to year
 };
 
 // helper function for moment.fn.from, moment.fn.fromNow, and moment.duration.fn.humanize
@@ -4103,16 +4252,17 @@ function relativeTime$1 (posNegDuration, withoutSuffix, locale) {
     var months   = round(duration.as('M'));
     var years    = round(duration.as('y'));
 
-    var a = seconds < thresholds.s && ['s', seconds]  ||
-            minutes <= 1           && ['m']           ||
-            minutes < thresholds.m && ['mm', minutes] ||
-            hours   <= 1           && ['h']           ||
-            hours   < thresholds.h && ['hh', hours]   ||
-            days    <= 1           && ['d']           ||
-            days    < thresholds.d && ['dd', days]    ||
-            months  <= 1           && ['M']           ||
-            months  < thresholds.M && ['MM', months]  ||
-            years   <= 1           && ['y']           || ['yy', years];
+    var a = seconds <= thresholds.ss && ['s', seconds]  ||
+            seconds < thresholds.s   && ['ss', seconds] ||
+            minutes <= 1             && ['m']           ||
+            minutes < thresholds.m   && ['mm', minutes] ||
+            hours   <= 1             && ['h']           ||
+            hours   < thresholds.h   && ['hh', hours]   ||
+            days    <= 1             && ['d']           ||
+            days    < thresholds.d   && ['dd', days]    ||
+            months  <= 1             && ['M']           ||
+            months  < thresholds.M   && ['MM', months]  ||
+            years   <= 1             && ['y']           || ['yy', years];
 
     a[2] = withoutSuffix;
     a[3] = +posNegDuration > 0;
@@ -4141,10 +4291,17 @@ function getSetRelativeTimeThreshold (threshold, limit) {
         return thresholds[threshold];
     }
     thresholds[threshold] = limit;
+    if (threshold === 's') {
+        thresholds.ss = limit - 1;
+    }
     return true;
 }
 
 function humanize (withSuffix) {
+    if (!this.isValid()) {
+        return this.localeData().invalidDate();
+    }
+
     var locale = this.localeData();
     var output = relativeTime$1(this, !withSuffix, locale);
 
@@ -4165,6 +4322,10 @@ function toISOString$1() {
     // This is because there is no context-free conversion between hours and days
     // (think of clock changes)
     // and also not between days and months (28-31 days per month)
+    if (!this.isValid()) {
+        return this.localeData().invalidDate();
+    }
+
     var seconds = abs$1(this._milliseconds) / 1000;
     var days         = abs$1(this._days);
     var months       = abs$1(this._months);
@@ -4209,6 +4370,7 @@ function toISOString$1() {
 
 var proto$2 = Duration.prototype;
 
+proto$2.isValid        = isValid$1;
 proto$2.abs            = abs;
 proto$2.add            = add$1;
 proto$2.subtract       = subtract$1;
@@ -4264,7 +4426,7 @@ addParseToken('x', function (input, array, config) {
 // Side effect imports
 
 
-hooks.version = '2.17.1';
+hooks.version = '2.18.1';
 
 setHookCallback(createLocal);
 
@@ -4314,7 +4476,8 @@ if (typeof jQuery === "undefined") { throw new Error("Appiphony Lightning JS req
     if (typeof $.aljs === 'undefined') {
         $.aljs = {
             assetsLocation: '',
-            scoped: false
+            scoped: true,
+            scopingClass: 'slds-scope'
         };
         
         $.aljsInit = function(options) {
@@ -4424,11 +4587,11 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             this.$elEndDate = $('#' + endDateId);
 
             if (options.endDate) {
-                this.setEndFullDate(endDate);
+                this.setSelectedEndDate(options.endDate);
             }
         }
         
-        this.initInteractivity();  
+        this.initInteractivity();
     };
 
     Datepicker.prototype = {
@@ -4441,15 +4604,15 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
 
             var openDatepicker = function(e) {
                 e.stopPropagation();
+                
                 // Close other datepickers
-                $('[data-aljs-datepicker-id]').not(this).each(function() {
+                $('[data-aljs-datepicker-id]').each(function() {
                     $(this).data('datepicker').closeDatepicker();
                 });
 
                 if ((e.target === $el[0] && ($el.val() !== null && $el.val() !== '')) || (e.target === $elEndDate[0] && ($elEndDate.val() !== null && $elEndDate.val() !== ''))) {
                     self.$selectedInput = $(this).parent().find('input');
-                    self.$selectedInput.on('keyup', self, self.processKeyup)
-                                       .on('blur', self, self.processBlur);
+                    self.$selectedInput.on('keyup', self, self.processKeyup);
                     self.closeDatepicker();
                 } else {
                     var initDate = self.selectedFullDate || moment();
@@ -4457,46 +4620,56 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
                     self.viewedYear = initDate.year();
                     self.fillMonth();
                     self.$selectedInput = $(this).parent().find('input');
-                    self.$selectedInput.off('keyup')
-                                       .off('blur');
-                    // if ($el.closest('.slds-form-element').next('.slds-datepicker').length > 0) {
-                    //     $datepickerEl.show();
-                    // } else {
-                    self.$selectedInput.closest('.slds-form-element').append($datepickerEl);   
+                    self.$selectedInput.off('keyup');
+                    self.$selectedInput.closest('.slds-form-element').append($datepickerEl);
+                    self.settings.onShow(self);
                     self.initYearDropdown();
                     $([$el, $datepickerEl, $elEndDate, $el.prev('svg')]).each(function() {
                         $(this).on('click', self.blockClose);
                     });         
                     $datepickerEl.on('click', self, self.processClick);
-                    //}  
-                    //if ()
-                    self.$selectedInput.blur();
-
+                    //self.$selectedInput.blur(); // Mimic Salesforce functionality
+                    
                     $('body').on('click', self, self.closeDatepicker);
                 }  
             };
 
             // Opening datepicker
-            $el.on('focus', openDatepicker);
+            //$el.on('focus', openDatepicker); // Removed by request of the Salesforce design team
+            $el.on('blur', self, self.processBlur);
+            $el.on('click', openDatepicker);
             $($el.prev('svg')).on('click', openDatepicker);
             $el.prev('svg').css('cursor', 'pointer');
 
             if ($elEndDate.length > 0) {
-                $($elEndDate).on('focus', openDatepicker);
-                $($elEndDate.prev('svg')).on('click', openDatepicker);
+                $elEndDate.on('blur', self, self.processBlur); // To do: fix this to pass in the correct end date datepicker
+                $elEndDate.on('focus', openDatepicker);
+                $elEndDate.prev('svg').on('click', openDatepicker);
                 $elEndDate.prev('svg').css('cursor', 'pointer');
             }
+        },
+        closeDatepicker: function(e) {
+            var self = this; 
+            var $target = $('body');
+            
+            if (e) {
+                self = e.data;
+                $target = $(this);
+            }
 
-            /* focus out?
-            $([$el, $datepickerEl.find('button')]).each(function() {
-                $(this).on('blur', function(e) {
-                    if ($(e.relatedTarget).closest('.slds-form--stacked').find($el).length === 0) {
-                        self.closeDatepicker();
-                    }
-                    //self.closeDatepicker();
-                });
-            });
-            */
+            var $datepickerEl = self.$datepickerEl;
+            var $selectedInput = self.$selectedInput;
+
+            if ($target.closest(self.$el.parent()).length === 0 && $selectedInput) {
+                var $selectedDatepickerEl = $selectedInput.closest('.slds-form-element').find('.slds-datepicker');
+                
+                if ($selectedDatepickerEl.length > 0) {
+                    self.settings.onDismiss(self);
+                    $selectedInput.closest('.slds-form-element').find('.slds-datepicker').remove();
+                }
+                $('body').unbind('click', self.closeDatepicker);
+                $datepickerEl.unbind('click', self.processClick);
+            }
         },
         fillMonth: function() {
             var self = this;
@@ -4564,13 +4737,8 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
                 var $yearDropdown = $('<label></label>')
 
                 $yearSelect = $('<select class="slds-select select picklist__label">').appendTo($yearDropdown);
-
-             //   var $yearContainer = $('<div id="aljs-yearDropdown" class="slds-dropdown slds-dropdown--menu">');
-             //   var $yearDropdown = $('<ul class="slds-dropdown__list" style="max-height: 13.5rem; overflow-y:auto;"></ul>').appendTo($yearContainer);
+                
                 var currentYear = moment().year();
-                // var selectedIconMarkup = ('<svg aria-hidden="true" class="slds-icon slds-icon--small slds-icon--left">' +
-                //                         '<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="{{assetsLocation}}/assets/icons/standard-sprite/svg/symbols.svg#task2" data-reactid=".46.0.0.1:$=10:0.0.$=11:0.0.0.0"></use>' +
-                //                     '</svg>').replace(/{{assetsLocation}}/g, this.settings.assetsLocation);
 
                 for (var i = currentYear - this.settings.numYearsBefore; i <= currentYear + this.settings.numYearsAfter; i++) {
                     var $yearOption = $('<option value="' + i + '">' + i + '</option>').appendTo($yearSelect);
@@ -4582,7 +4750,7 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             }
 
             $yearSelect.on('change', function(e) {
-                self.viewedYear = $(e.target).val();
+                self.viewedYear = parseInt($(e.target).val());
                 self.fillMonth();
             });
             
@@ -4614,6 +4782,7 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             // Fill previous month
             for (var i = numDaysInPrevMonth - (firstDayOfMonth - 1); i <= numDaysInPrevMonth; i++) {
                 var iDate = moment(new Date(previousMonth === 11 ? viewedYear - 1 : viewedYear, previousMonth, i));
+                
                 allDays.push({
                     value: i,
                     dateValue: this.getMMDDYYYY(previousMonth + 1, i, viewedYear),
@@ -4625,6 +4794,7 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             // Fill current month
             for (var i = 1; i <= numDaysInMonth; i++) {
                 var iDate = moment(new Date(viewedYear, viewedMonth, i));
+                
                 allDays.push({
                     value: i,
                     dateValue: this.getMMDDYYYY(viewedMonth + 1, i, viewedYear),
@@ -4640,13 +4810,10 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             allDays.forEach(function(day, index, allDays) {
                 if (index % 7 === 0) {
                     var hasMultiRowSelection = (index >= 7 && allDays[index - 1].isSelectedMulti && day.isSelectedMulti);
-                                                //|| (allDays[index + 6] && allDays[index + 6].isSelectedMulti === true 
-                                                //    && allDays[index + 7] && allDays[index + 7].isSelectedMulti === true);
                     
                     if (hasMultiRowSelection) {
                         calendarRows[calendarRows.length - 1].hasMultiRowSelection = true;
                     }
-
                     calendarRows.push({
                         data: [],
                         hasMultiRowSelection: hasMultiRowSelection
@@ -4678,9 +4845,18 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             var oldDate = this.selectedFullDate;
 
             this.selectedFullDate = selectedFullDate;
-            this.$el.val(selectedFullDate.format(this.settings.format));
+            
+            if (selectedFullDate !== '' && selectedFullDate !== null && typeof selectedFullDate !== 'undefined') {
+                this.$el.val(selectedFullDate.format(this.settings.format));
+                
+                if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf('Chrome') === -1) { // Addresses bug where Safari does not clear out visible placeholders on first value update
+                    this.$el.val(selectedFullDate.format(this.settings.format));     
+                }
+            } else {
+                this.$el.val('');
+            }
 
-            if (!oldDate || (!oldDate.isSame(selectedFullDate, 'day'))) {
+            if ((!oldDate && selectedFullDate != '') || (typeof(oldDate) === 'object' && !oldDate.isSame(selectedFullDate, 'day'))) {
                 this.settings.onChange(this);
             }
         },
@@ -4688,9 +4864,18 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             var oldDate = this.selectedEndDate;
 
             this.selectedEndDate = selectedEndDate;
-            this.$elEndDate.val(selectedEndDate.format(this.settings.format));
+            
+            if (selectedEndDate !== '' && selectedEndDate !== null && typeof selectedEndDate !== 'undefined') {
+                this.$elEndDate.val(selectedEndDate.format(this.settings.format));
+                
+                if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf('Chrome') === -1) { // Addresses bug where Safari does not clear out visible placeholders on first value update
+                    this.$elEndDate.val(selectedEndDate.format(this.settings.format));     
+                }
+            } else {
+                this.$elEndDate.val('');
+            }
 
-            if (!oldDate || (!oldDate.isSame(selectedEndDate, 'day'))) {
+            if ((!oldDate && selectedEndDate != '') || (typeof(oldDate) === 'object' && !oldDate.isSame(selectedEndDate, 'day'))) {
                 this.settings.onChange(this);
             }
         },
@@ -4714,87 +4899,98 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             if ($target.closest('li[data-aljs-year]').length > 0) {
                 self.clickYear(e);
             }
-
-            // if ($target.closest('#year').length > 0) {
-            //     self.clickYearDropdown(e);
-            // } else {
-            //     self.hideYearDropdown();
-            // }
         },
         processKeyup: function(e) {
-            if (e.keyCode === 13) {
-                $(this).blur();
-                // var self = e.data;
-                // var selectedDate = $(this).val();
-
-                // if (moment(selectedDate).isValid()) {
-                //     if (self.$elEndDate && self.$elEndDate.length > 0 && self.$elEndDate[0] === self.$selectedInput[0]) {
-                //         self.setSelectedEndDate(moment(selectedDate, self.settings.format));
-                //     } else {
-                //         self.setSelectedFullDate(moment(selectedDate, self.settings.format));
-                //     }
-
-                //     self.closeDatepicker(e);
-                //     $(this).blur();
-                // } 
-            }  
+            if (e.keyCode === 13) { // Return key
+                $(this).blur().off('keyup');
+            }
         },
         processBlur: function(e) {
             if (e) {
                 var self = e.data;
-                var selectedDate = $(this).val();
-                var momentSelectedDate = moment(selectedDate, self.settings.format);
-
-                if (momentSelectedDate.isValid()) {
-                    if (self.$elEndDate && self.$elEndDate.length > 0 && self.$elEndDate[0] === self.$selectedInput[0]) {
-                        self.setSelectedEndDate(momentSelectedDate);
-                    } else {
-                        self.setSelectedFullDate(momentSelectedDate);
+                
+                if (self.$elEndDate && self.$elEndDate.length > 0 && self.$elEndDate[0] === self.$selectedInput[0]) { // Check if current input is for an end date
+                    var selectedEndDate = self.$elEndDate.val();
+                    var momentSelectedEndDate = moment(selectedEndDate, self.settings.format);
+                    
+                    if (momentSelectedEndDate.isValid()) {
+                        self.setSelectedEndDate(momentSelectedEndDate);
+                        self.closeDatepicker(e);
+                        self.$selectedInput.off('keyup');
+                    } else if (!selectedEndDate.length) {
+                        self.setSelectedEndDate('');
                     }
-
-                    self.closeDatepicker(e);
-                    self.$selectedInput.off('keyup')
-                                       .off('blur');
-                    //$(this).blur();
-                } 
+                } else {
+                    var selectedFullDate = self.$el.val();
+                    var momentSelectedFullDate = moment(selectedFullDate, self.settings.format);
+                    
+                    if (momentSelectedFullDate.isValid()) {
+                        self.setSelectedFullDate(momentSelectedFullDate);
+                        self.closeDatepicker(e);
+                        self.$selectedInput.off('keyup');
+                    } else if (!selectedFullDate.length) {
+                        self.setSelectedFullDate('');
+                    }
+                }
             }  
         },
         clickPrev: function(e) {
             var self = e.data;
+            var currentYear = moment().year();
+            
             if (self.viewedMonth === 0) {
                 self.viewedMonth = 11;
-                self.viewedYear--;
                 
-                self.$datepickerEl.find('.slds-select option:selected')
-                    .prop('selected', false)
-                    .prev()
-                    .prop('selected', 'selected');
+                if (self.viewedYear === (currentYear - self.settings.numYearsBefore)) { // Allow looping
+                    self.viewedYear = currentYear + self.settings.numYearsAfter;
+                    self.$datepickerEl.find('.slds-select option:selected')
+                        .prop('selected', false);
+                    self.$datepickerEl.find('.slds-select option')
+                        .last()
+                        .prop('selected', 'selected');
+                } else {
+                    self.viewedYear--;
+                    self.$datepickerEl.find('.slds-select option:selected')
+                        .prop('selected', false)
+                        .prev()
+                        .prop('selected', 'selected');
+                }
             } else {
                 self.viewedMonth--;
             }
-
+            
             self.fillMonth();
         },
         clickNext: function(e) {
             var self = e.data;
-
+            var currentYear = moment().year();
+            
             if (self.viewedMonth === 11) {
                 self.viewedMonth = 0;
-                self.viewedYear++;
                 
-                self.$datepickerEl.find('.slds-select option:selected')
-                    .prop('selected', false)
-                    .next()
-                    .prop('selected', 'selected');
+                if (self.viewedYear === (currentYear + self.settings.numYearsAfter)) { // Allow looping
+                    self.viewedYear = currentYear - self.settings.numYearsBefore;
+                    self.$datepickerEl.find('.slds-select option:selected')
+                        .prop('selected', false);
+                    self.$datepickerEl.find('.slds-select option')
+                        .first()
+                        .prop('selected', 'selected');
+                } else {
+                    self.viewedYear++;
+                    self.$datepickerEl.find('.slds-select option:selected')
+                        .prop('selected', false)
+                        .next()
+                        .prop('selected', 'selected');
+                }
             } else {
                 self.viewedMonth++;
             }
-
+            
             self.fillMonth();
         },
         clickYear: function(e) {
             var self = e.data;
-
+            
             var $clickedYear = $(e.target).closest('li[data-aljs-year]');
             self.viewedYear = parseInt($clickedYear.data('aljs-year'));
             self.fillMonth();
@@ -4821,27 +5017,9 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
                     self.setSelectedFullDate(moment(selectedDate, 'MM/DD/YYYY'));
                 }
                 
-                self.closeDatepicker(e); 
-
+                self.settings.onSelect(self, moment(selectedDate, 'MM/DD/YYYY'));
+                self.closeDatepicker(e);
             }     
-        },
-        closeDatepicker: function(e) {
-            var self = this; 
-            var $target = $('body');
-            
-            if (e) {
-                self = e.data;
-                $target = $(this);
-            }
-
-            var $datepickerEl = self.$datepickerEl;
-            var $selectedInput = self.$selectedInput;
-
-            if ($target.closest(self.$el.parent()).length === 0 && $selectedInput) {
-                $selectedInput.closest('.slds-form-element').find('.slds-datepicker').remove();
-                $('body').unbind('click', self.closeDatepicker);
-                $datepickerEl.unbind('click', self.processClick);
-            }
         },
         blockClose: function(e) {
             e.stopPropagation();
@@ -4880,6 +5058,9 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             format: 'MM/DD/YYYY',
             endDateInputId: null,
             onChange: function(datepicker) {},
+            onShow: function(datepicker) {},
+            onDismiss: function(datepicker) {},
+            onSelect: function(datepicker, selectedDate) {},
             dayLabels: [
                 {
                     full: 'Sunday',
@@ -4963,7 +5144,6 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             todayLabel: 'Today'
         }, typeof options === 'object' ? options : {});
 
-
         this.each(function() {
             var $this = $(this),
                 data = $this.data('datepicker');
@@ -4984,7 +5164,7 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
         }
 
         if (this.length > 1) {
-            throw new Error('Using only allowed for the collection of a single element (' + option + ' function)');
+            throw new Error('Usage only allowed for the collection of a single element (' + option + ' function)');
         } else {
             return internalReturn;
         }
@@ -5118,7 +5298,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var searchMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option">' +
+			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option" tabindex="1">' +
 				'<svg aria-hidden="true" class="slds-icon slds-icon--x-small slds-icon-text-default">' +
 					'<use xlink:href="{{assetsLocation}}/assets/icons/utility-sprite/svg/symbols.svg#search"></use>' +
 				'</svg>' +
@@ -5130,7 +5310,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var newItemMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option">' +
+			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option" tabindex="1">' +
 				'<svg aria-hidden="true" class="slds-icon slds-icon--x-small slds-icon-text-default">' +
 					'<use xlink:href="{{assetsLocation}}/assets/icons/utility-sprite/svg/symbols.svg#add"></use>' +
 				'</svg>' +
@@ -5140,7 +5320,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var lookupResultItemMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-media slds-media--center" id="{{resultId}}" role="option" tabindex="1">' +
+			'<span class="slds-lookup__item-action slds-media" id="{{resultId}}" role="option" tabindex="1">' +
 				'<svg aria-hidden="true" class="{{objectIconClass}} slds-icon slds-icon--small slds-media__figure{{hasIcon}}">' +
 					'<use xlink:href="{{objectIconUrl}}"></use>' +
 				'</svg>' +
@@ -5153,7 +5333,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var customLookupResultItemMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-media slds-media--center" id="{{resultId}}" role="option" tabindex="1">' +
+			'<span class="slds-lookup__item-action slds-media" id="{{resultId}}" role="option" tabindex="1">' +
                 '<img class="{{objectIconClass}} slds-icon slds-icon--small slds-media__figure{{hasIcon}}" src="{{objectIconUrl}}"/>' +
                 '<div class="slds-media__body">' +
                     '<div class="slds-lookup__result-text">{{resultLabel}}</div>' +
@@ -5173,8 +5353,15 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
        	if (this.isSingle) {
        		this.$singleSelect = $(selectContainerMarkup).insertBefore(this.$el);
        	} else {
-       		this.$multiSelect = $(selectContainerMarkup).appendTo(this.$lookupContainer.find('.slds-form-element'));
+       		this.$multiSelect = $(selectContainerMarkup).insertAfter(this.$lookupContainer.find('.slds-form-element__label'));
        		this.selectedResults = []; // We'll have to initialize.
+            
+            this.$multiSelect.css({
+                'padding': 0,
+                'margin-top': '-2px',
+                'margin-left': '-2px',
+                'border': 'none'
+            });
        	}
         
         if (!this.isStringEmpty(options.searchTerm)) {
@@ -5187,6 +5374,46 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         this.initLookup();
     };
     
+    var handleResultsKeyup = function(e) {
+        var $currentTarget = $(e.currentTarget);
+        
+        $currentTarget.removeClass('slds-has-focus');
+        
+        if (e.which === 38 || e.which === 40) { // Up or down arrow, respectively
+            e.preventDefault();
+            
+            var firstItemSelector = ($('.slds-lookup .slds-lookup__list > li:first-child').is('.slds-lookup__item--label')) ? '.slds-lookup .slds-lookup__list > li:nth-child(2) .slds-lookup__item-action' : '.slds-lookup .slds-lookup__list > li:first-child .slds-lookup__item-action';
+            
+            if (e.which === 38) { // Up arrow
+                if ($currentTarget.is(firstItemSelector)) { // Pressing up on the first item, loop over
+                    $('.slds-lookup .slds-lookup__list > li:last-child .slds-lookup__item-action')
+                        .focus()
+                        .addClass('slds-has-focus');
+                } else {
+                    $currentTarget.closest('li')
+                        .prev()
+                        .find('.slds-lookup__item-action')
+                        .focus()
+                        .addClass('slds-has-focus');
+                }
+            } else { // Down arrow
+                if ($currentTarget.is('.slds-lookup .slds-lookup__list > li:last-child .slds-lookup__item-action')) { // Pressing down on the last item, loop over
+                    $(firstItemSelector)
+                        .focus()
+                        .addClass('slds-has-focus');
+                } else {
+                    $currentTarget.closest('li')
+                        .next()
+                        .find('.slds-lookup__item-action')
+                        .focus()
+                        .addClass('slds-has-focus');
+                }
+            }
+        } else if (e.which === 13) { // Return key
+            $currentTarget.click();
+        }
+    }
+    
     Lookup.prototype = {
         constructor: Lookup,
         isStringEmpty: function(stringVal) {
@@ -5197,7 +5424,20 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
         	this.$el.on('focus', this, this.runSearch)
                 .on('blur', this, this.handleBlur)
-                .on('keyup', this, this.runSearch);
+                .on('keyup', this, this.handleKeyup);
+            
+            // Prevent multiple bindings
+            $('body').off('keyup', '.slds-lookup .slds-lookup__list .slds-lookup__item-action', handleResultsKeyup);
+            $('body').on('keyup', '.slds-lookup .slds-lookup__list .slds-lookup__item-action', handleResultsKeyup);
+        },
+        handleKeyup: function(e) {
+            if (e.which === 40) { // Down arrow
+                $('.slds-lookup .slds-lookup__list .slds-lookup__item-action').first()
+                    .focus()
+                    .addClass('slds-has-focus');
+            } else {
+                e.data.runSearch(e);
+            }
         },
         runSearch: function(e) {
             var self = e.data;
@@ -5231,20 +5471,29 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                         .replace('{{assetsLocation}}', self.settings.assetsLocation)
                         .replace(/{{objectLabel}}/g, self.settings.objectLabel)
                         .replace(/{{selectedResultLabel}}/g, result.label));
-        			$pill.removeClass('slds-pill--bare')
+                    
+        			$pill.removeClass('slds-size--1-of-1')
                         .attr('id', result.id)
-                        .on('click', 'a, button', self, self.clearMultiSelectResult);
+                        .on('click', 'a, button', self, self.clearMultiSelectResult)
+                        .css({
+                            'margin': '2px',
+                            'display': 'inline-flex'
+                        })
+                        .find('.slds-pill__remove')
+                        .css({
+                            'vertical-align': '1px',
+                            'margin-left': '0.25rem'
+                        });
+                    
         			$multiSelect.append($pill);
         		});
                 
         		$multiSelect.addClass('slds-show')
                     .removeClass('slds-hide');
-        		$lookupContainer.addClass('slds-has-selection');
         	} else {
         		$multiSelect.html('');
         		$multiSelect.addClass('slds-hide')
                     .removeClass('slds-show');
-        		$lookupContainer.removeClass('slds-has-selection');
         	}
         },
         setSingleSelect: function(selectedResultLabel) {
@@ -5272,7 +5521,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     .removeClass('slds-show');
                 
         		this.$el.val('')
-        			.removeClass('slds-hide')
+        			.removeClass('slds-hide');
+                
         		this.$lookupContainer.removeClass('slds-has-selection');
                 
         		setTimeout(function() {
@@ -5372,6 +5622,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         		var $newItem = $resultsListContainer.append(newItemMarkup
                     .replace('{{objectLabel}}', this.settings.objectLabel)
                     .replace('{{assetsLocation}}', $.aljs.assetsLocation));
+                
                 $newItem.next().on('click', function() {
                     $newItem.off('click');
                     
@@ -5381,14 +5632,16 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             
         	$resultsListContainer.one('click', '.slds-lookup__item-action[id]', this, this.clickResult)
             
-            var shouldAppendSearchContainer = this.searchResults.length > 0 || this.settings.onClickNew || showUseSection;
+            this.$lookupSearchContainer = $lookupSearchContainer.appendTo(this.$lookupContainer);
             
-            if (shouldAppendSearchContainer) {
-                this.$lookupSearchContainer = $lookupSearchContainer;
-                $lookupSearchContainer.appendTo(this.$lookupContainer);
+            var shouldShowSearchContainer = (this.searchResults.length > 0 && this.$el.closest('.slds-form-element').find('.slds-lookup__list > li').length > 0) || this.settings.onClickNew || showUseSection;
+            
+            if (shouldShowSearchContainer) {
                 this.$el.attr('aria-expanded', 'true')
                     .closest('.slds-lookup')
                     .addClass('slds-is-open');
+            } else {
+                this.$lookupSearchContainer.remove();
             }
         },
         closeSearchDropdown: function() {
@@ -5403,14 +5656,11 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                 .removeClass('slds-is-open');
         },
         handleBlur: function(e) {
-            var event = e;
         	var self = e.data;
             
-            setTimeout(function() {
-            	if ($(event.relatedTarget).closest('.slds-lookup.slds-is-open').length === 0 && self.$lookupSearchContainer) {
-            		self.closeSearchDropdown();
-            	}
-            }, 250);
+            if ($(e.relatedTarget).closest('.slds-lookup.slds-is-open').length === 0 && self.$lookupSearchContainer) {
+                self.closeSearchDropdown();
+            }
         },
         clickResult: function(e) {
         	var self = e.data;
@@ -5451,6 +5701,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         	var $clickedPill = $(this).closest('span.slds-pill');
         	var resultId = $clickedPill.attr('id');
         	var indexToRemove;
+            
+            self.closeSearchDropdown();
             
         	self.selectedResults.forEach(function(result, index) {
         		if (result.id == resultId) {
@@ -5568,8 +5820,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
     var aljsRefocusTarget = null; // Element to refocus on modal dismiss
     var isShowing, aljsScope;
     
-    function initModals() {
-        aljsScope = ($.aljs.scoped) ? '.slds' : aljsBodyTag;
+    function initModals() {        
+        aljsScope = ($.aljs.scoped) ? (typeof($.aljs.scopingClass) === 'string') ? '.' + $.aljs.scopingClass : '.slds-scope' :  aljsBodyTag;
         
         $('.slds-backdrop').remove(); // Remove any existing backdrops
         $(aljsScope).append('<div class="aljs-modal-container"></div>');
@@ -5613,16 +5865,16 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             var dismissModalElement = $(settings.dismissSelector);
             var modalElements = $('.slds-modal__header, .slds-modal__content, .slds-modal__footer');
             
-            function keyUpCheck(e) {
-                if (e.keyCode == 27 && aljsModals.is(':visible')) dismissModal(); // Esc key
+            function processKeyup(e) {
+                if (e.which == 27 && aljsModals.is(':visible')) dismissModal(); // Esc key
             }
             
             function dismissModal() {
                 modalObj.$el.modal('dismiss', settings)
                     .unbind('click');
-                $(aljsBodyTag).unbind('keyup', keyUpCheck);
                 aljsModals.unbind('click');
                 dismissModalElement.unbind('click');
+                $(aljsBodyTag).unbind('keyup', processKeyup);
             }
             
             switch (args) {
@@ -5640,21 +5892,10 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     $('.slds-backdrop').remove(); // Remove any existing backdrops
                     $('.aljs-modal-container').append('<div class="slds-backdrop"></div>');
                     
-                    $(aljsBodyTag).keyup(keyUpCheck);
                     modalObj.$el.addClass('slds-show')
                         .removeClass('slds-hide')
                         .attr('aria-hidden', 'false')
                         .attr('tabindex', 1);
-                    
-                    dismissModalElement.click(function(e) { // Bind events based on options
-                        e.preventDefault();
-                        dismissModal();
-                    });
-                    
-                    if (settings.backdropDismiss) {
-                        aljsModals.click(dismissModal);
-                        modalElements.click(function(e) { e.stopPropagation(); });
-                    }
                     
                     setTimeout(function() { // Ensure elements are displayed and rendered before adding classes
                         var backdrop = $('.slds-backdrop');
@@ -5662,6 +5903,18 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                             modalObj.$el.trigger('shown.aljs.modal'); // Custom aljs event
                             settings.onShown(modalObj);
                             isShowing = false;
+                            $(aljsBodyTag).unbind('keyup', processKeyup)
+                                .bind('keyup', processKeyup);
+                            
+                            dismissModalElement.click(function(e) { // Bind events based on options
+                                e.preventDefault();
+                                dismissModal();
+                            });
+                            
+                            if (settings.backdropDismiss) {
+                                aljsModals.click(dismissModal);
+                                modalElements.click(function(e) { e.stopPropagation(); });
+                            }
                         };
                         
                         backdrop.one('transitionend', handleTransitionEnd)
@@ -5676,9 +5929,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     if (!isShowing) {
                         var backdrop = $('.slds-backdrop');
                         var handleTransitionEnd = function() {
-                            if (!isShowing) {
-                                backdrop.remove();
-                            }
+                            if (!isShowing) backdrop.remove();
                             
                             aljsRefocusTarget = null;
                             modalObj.$el.addClass('slds-hide')
@@ -5697,6 +5948,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                         .attr('tabindex', -1);
                     
                     if (aljsRefocusTarget !== null) aljsRefocusTarget.focus();
+                    
                     modalObj.$el.trigger('dismiss.aljs.modal'); // Custom aljs event
                     break;
                     
@@ -5751,21 +6003,25 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
     multiSelect.prototype = {
         constructor: multiSelect,
         init: function() {
-            this.renderPicklists();
+            this.renderUnselectedItems();
+            this.renderSelectedItems();
 
-            this.$el.find('[data-aljs-multi-select="unselect"]').on('click', this, this.unselectOption);
-            this.$el.find('[data-aljs-multi-select="select"]').on('click', this, this.selectOption);
-            this.$el.find('[data-aljs-multi-select="move-up"]').on('click', this, this.moveOptionUp);
-            this.$el.find('[data-aljs-multi-select="move-down"]').on('click', this, this.moveOptionDown);
+            this.$el.find('[data-aljs-multi-select="unselect"]').on('click', this, this.unselectItem);
+            this.$el.find('[data-aljs-multi-select="select"]').on('click', this, this.selectItem);
+            this.$el.find('[data-aljs-multi-select="move-up"]').on('click', this, this.moveItemUp);
+            this.$el.find('[data-aljs-multi-select="move-down"]').on('click', this, this.moveItemDown);
         },
-        renderPicklists: function() {
-            var self = this;            
+        renderUnselectedItems: function() {
+            var self = this;
+            
+            this.$unselectedContainer.empty();
 
             this.unselectedItems.forEach(function(item) {
                 self.$unselectedContainer.append(self.createPicklistDomItem(item));
             });
 
             this.$unselectedContainer
+                .off()
                 .on('click', 'li', function(e) {
                     $(this).addClass('slds-is-selected')
                            .attr('aria-selected', 'true')
@@ -5776,6 +6032,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                 })
                 .on('dragstart', 'li', function(e) {
                     self.itemToSelect = $(this).data('aljs-picklist-obj');
+                
+                    e.originalEvent.dataTransfer.setData('text/plain', null);
                 })
                 .on('dragover', function(e) {
                     e.preventDefault();
@@ -5790,12 +6048,18 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     e.stopPropagation();
                     self.$el.find('[data-aljs-multi-select="unselect"]').click();
                 });
+        },
+        renderSelectedItems: function() {
+            var self = this;
+            
+            this.$selectedContainer.empty();
 
             this.selectedItems.forEach(function(item) {
                 self.$selectedContainer.append(self.createPicklistDomItem(item));
             });
 
             this.$selectedContainer
+                .off()
                 .on('click', 'li', function(e) {
                     $(this).addClass('slds-is-selected')
                            .attr('aria-selected', 'true')
@@ -5806,6 +6070,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                 })
                 .on('dragstart', 'li', function(e) {
                     self.itemToUnselect = $(this).data('aljs-picklist-obj');
+                    
+                    e.originalEvent.dataTransfer.setData('text/plain', null);
                 })
                 .on('dragover', function(e) {
                     e.preventDefault();
@@ -5821,33 +6087,39 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     self.$el.find('[data-aljs-multi-select="select"]').click();
                 });
         },
-        selectOption: function(e) {
+        selectItem: function(e) {
             var self = e.data;
 
             if (self.itemToSelect) {
-                self.$unselectedContainer.find('#' + self.itemToSelect.id)
+                var item = self.$unselectedContainer.find('#' + self.itemToSelect.id)
                     .removeClass('slds-is-selected')
                     .attr('aria-selected', 'false')
                     .appendTo(self.$selectedContainer);
+                
                 self.unselectedItems.splice(self.unselectedItems.indexOf(self.itemToSelect), 1);
                 self.selectedItems.push(self.itemToSelect);
                 self.itemToSelect = null;
+                
+                self.settings.onSelectItem(self);
             }
         },
-        unselectOption: function(e) {
+        unselectItem: function(e) {
             var self = e.data;
 
             if (!self.itemToUnselect) { return; }
 
-            self.$selectedContainer.find('#' + self.itemToUnselect.id)
+            var item = self.$selectedContainer.find('#' + self.itemToUnselect.id)
                 .removeClass('slds-is-selected')
                 .attr('aria-selected', 'false')
                 .appendTo(self.$unselectedContainer);
+            
             self.selectedItems.splice(self.selectedItems.indexOf(self.itemToUnselect), 1);
             self.unselectedItems.push(self.itemToUnselect);
             self.itemToUnselect = null;
+            
+            self.settings.onUnselectItem(self);
         },
-        moveOptionUp: function(e) {
+        moveItemUp: function(e) {
             var self = e.data;
 
             if (!self.itemToUnselect) { return; }
@@ -5865,9 +6137,11 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                            .insertBefore($itemToMove.prev('li'));
 
                 self.itemToUnselect = null;
+                
+                self.settings.onMoveItem(self, 'up');
             }
         },
-        moveOptionDown: function(e) {
+        moveItemDown: function(e) {
             var self = e.data;
 
             if (!self.itemToUnselect) { return; }
@@ -5885,6 +6159,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                            .insertAfter($itemToMove.next('li'));
 
                 self.itemToUnselect = null;
+                
+                self.settings.onMoveItem(self, 'down');
             }
         },
         createPicklistDomItem: function(item) {
@@ -5893,34 +6169,13 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                                        .replace('{{optionLabel}}', item.label.toString()))
                                        .data('aljs-picklist-obj', item);
         },
-        setSelectedItems: function(ids) {
-            var self = this;
-            if (ids && ids.length > 0) {
-                var itemsToSelect = this.unselectedItems.filter(function(item) {
-                    return ids.indexOf(item.id) !== -1;
-                });
-
-                itemsToSelect.forEach(function(item) {
-                    self.itemToSelect = item;
-
-                    self.$el.find('[data-aljs-multi-select="select"]').click();
-                });
-            }
+        setSelectedItems: function(objs) {
+            this.selectedItems = objs;
+            this.renderSelectedItems();
         },
-        setUnselectedItems: function(ids) {
-            var self = this;
-
-            if (ids && ids.length > 0) {
-                var itemsToUnselect = this.selectedItems.filter(function(item) {
-                    return ids.indexOf(item.id) !== -1;
-                });
-
-                itemsToUnselect.forEach(function(item) {
-                    self.itemToUnselect = item;
-
-                    self.$el.find('[data-aljs-multi-select="unselect"]').click();
-                });
-            }
+        setUnselectedItems: function(objs) {
+            this.unselectedItems = objs;
+            this.renderUnselectedItems();
         },
         getSelectedItems: function() {
             return this.selectedItems;
@@ -5939,6 +6194,9 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             // These are the defaults
             selectedItems: [],
             unselectedItems: [],
+            onSelectItem: function(obj) {},
+            onUnselectItem: function(obj) {},
+            onMoveItem: function(obj, direction) {},
             assetsLocation: $.aljs.assetsLocation
         }, typeof options === 'object' ? options : {});
 
@@ -6029,9 +6287,13 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             var self = this;
             var $el = this.$el;
             
-            this.obj.$trigger = $('.slds-button', $el);
-            this.obj.$dropdown = $('.slds-dropdown', $el);
-            this.obj.$choices = $('.slds-dropdown__item a', $el);
+            this.obj.$trigger = $('.slds-lookup__search-input', $el);
+            this.obj.$dropdown = $('.slds-dropdown__list', $el);
+            this.obj.$choices = $('.slds-dropdown__list > li > span', $el).prop('tabindex', 1);
+            
+            this.$el.on('keyup', self, self.processKeypress)
+                .find('.slds-lookup__search-input + .slds-button')
+                .css('pointer-events', 'none');
                         
             this.obj.$trigger.unbind() // Prevent multiple bindings
                 .click(function(e) {
@@ -6051,22 +6313,16 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                         if (self.obj.valueId === null || typeof self.obj.valueId === 'undefined') {
                             self.focusedIndex = null;
                         } else {
-                            self.focusedIndex = self.obj.$dropdown.find('li').index(self.obj.$dropdown.find('#' + self.obj.valueId));
+                            self.focusedIndex = self.obj.$dropdown.find('li > span').index(self.obj.$dropdown.find('#' + self.obj.valueId));
                         }
                         
                         self.focusOnElement();
-                        self.obj.$dropdown.on('keyup', self, self.processKeypress);
                     }
                 return false; // Prevent scrolling on keypress
                 });
             
             $('body').click(function() { 
                 self.$el.removeClass('slds-is-open');
-                self.obj.$dropdown.unbind('keyup', self.processKeypress);
-            }).keyup(function(e) {
-                if (e.keyCode === 27) { // Esc
-                    $('[data-aljs="picklist"]').picklist('close');
-                }
             });
             
         },
@@ -6074,18 +6330,41 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             var self = e.data;
             var optionsLength = self.obj.$choices.length;
             
-            switch (e.keyCode) {
-                case (40): // Down
-                    self.focusedIndex = self.focusedIndex === optionsLength - 1 ? 0 : self.focusedIndex + 1;
-                    self.focusOnElement();
-                    break;
-                case (38): // Up
-                    self.focusedIndex = self.focusedIndex === 0 ? optionsLength - 1 : self.focusedIndex - 1;
-                    self.focusOnElement();
-                    break;
-                case (27): // Esc
-                    self.$el.picklist('close');
-                    break;
+            
+            if (self.$el.hasClass('slds-is-open')) {
+                switch (e.which) {
+                    case (40): // Down
+                        if (self.focusedIndex === null) {
+                            self.focusedIndex = 0;
+                        } else {
+                            self.focusedIndex = self.focusedIndex === optionsLength - 1 ? 0 : self.focusedIndex + 1;
+                        }
+                        
+                        self.focusOnElement();
+                        break;
+                    case (38): // Up
+                        if (self.focusedIndex === null) {
+                            self.focusedIndex = optionsLength - 1;
+                        } else {
+                            self.focusedIndex = self.focusedIndex === 0 ? optionsLength - 1 : self.focusedIndex - 1;
+                        }
+                        
+                        self.focusOnElement();
+                        break;
+                    case (27): // Esc
+                        self.$el.picklist('close');
+                        break;
+                    case (13): // Return
+                        if (self.focusedIndex !== null) {
+                            var focusedId = self.obj.$choices.eq(self.focusedIndex).attr('id');
+                            
+                            self.setValueAndUpdateDom(focusedId);
+                        }
+                        break;
+                }
+            } else if (e.which === 13) { // Return
+                self.$el.addClass('slds-is-open');
+                self.focusOnElement();
             }
             
             return false; // Prevents scrolling
@@ -6097,40 +6376,41 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         },
         bindChoices: function() {
             var self = this;
-            this.obj.$valueContainer = $('> span', this.obj.$trigger);
+            this.obj.$valueContainer = $('.slds-lookup__search-input', this.$el);
             
             this.obj.$choices.unbind() // Prevent multiple bindings
                 .click(function(e) {
                     e.stopPropagation();
                 
-                    var optionId = $(this).closest('li').attr('id');
+                    var optionId = $(this).closest('span').attr('id');
                 
                     self.setValueAndUpdateDom(optionId);
-                    self.settings.onChange(self.obj);
                 });
         },
         setValueAndUpdateDom: function(optionId) {
-            var $li = this.$el.find('#' + optionId);
-            this.obj.value = $li.find('a').text();
+            var self = this;
+            var $span = self.$el.find('#' + optionId);
+            var index = self.obj.$choices.index($span);
+            
+            this.obj.value = $span.text().trim();
             this.obj.valueId = optionId;
             this.$el.removeClass('slds-is-open');
-            this.obj.$dropdown.unbind('keyup', this.processKeypress);
             
             this.obj.$trigger.trigger('change.aljs.picklist') // Custom aljs event
                 .focus();
-        
-            this.obj.$valueContainer.text(this.obj.value);
-            this.obj.$choices.parent()
-                .removeClass('slds-is-selected');
             
-            $li.addClass('slds-is-selected');
+            this.obj.$valueContainer.val(this.obj.value);
+            this.obj.$choices.removeClass('slds-is-selected');
+            
+            $span.addClass('slds-is-selected');
+            self.focusedIndex = index;
+            self.settings.onChange(self.obj);
         },
         setValue: function(optionId, callOnChange) {
             this.setValueAndUpdateDom(optionId);
             if (callOnChange) {
                 this.settings.onChange(this.obj);
             }
-            
         },
         getValueId: function() {
             return this.obj.valueId;
@@ -6140,7 +6420,6 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         },
         close: function() {
             this.$el.removeClass('slds-is-open');
-            this.obj.$dropdown.unbind('keyup', this.processKeypress);
         }
     };
     
@@ -6216,45 +6495,45 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
     var nubbinWidth = 15;
 
     var showPopover = function(e) {
+        
         var settings = e.data;
         var $target = $(e.target).is($(settings.selector)) ? $(e.target) : $(e.target).closest(settings.selector || '[data-aljs="popover"]');
-
         var isMarkup = ($target.attr('data-aljs-show')) ? true : false;
-
-        if (!$target.attr('data-aljs-title')) {
+        
+        if (!$target.attr('data-aljs-title') && !isMarkup) {
             $target.attr('data-aljs-title', $target.attr('title'));
             $target.attr('title', '');
-            //$target.css('position', 'relative');
         }
-        var lineHeightFix = ($target.parent().hasClass('slds-button')) ? ' style="line-height: normal;"' : ''; // Adjust line height if popover is inside a button
-        var popoverId = $target.attr('data-aljs-id') || 'aljs-' + (new Date()).valueOf();
-        var popoverContent = (!isMarkup) ? htmlEncode($target.data('aljs-title')) : $('#' + $target.data('aljs-show')).html();
-        var popoverPosition = $target.attr('data-aljs-placement') || 'top';
-        var popoverNubbins = {
-            top: 'bottom',
-            bottom: 'top',
-            left: 'right',
-            right: 'left'
-        };
-        var popoverPositioningCSS = 'overflow: visible; display: inline-block; position: absolute;';
-        var modifier = (settings.modifier != '') ? ' slds-popover--' + settings.modifier : '';
-        var theme = (settings.theme != '') ? ' slds-theme--' + settings.theme : '';
+        
+        var popoverContent = (!isMarkup) ? htmlEncode($target.attr('data-aljs-title')) : $('#' + $target.data('aljs-show')).html();
+        
+        if (popoverContent.length > 0) {            
+            var lineHeightFix = ($target.parent().hasClass('slds-button')) ? ' style="line-height: normal;"' : ''; // Adjust line height if popover is inside a button
+            var popoverId = $target.attr('data-aljs-id') || 'aljs-' + (new Date()).valueOf();
+            var popoverPosition = $target.attr('data-aljs-placement') || 'top';
+            var popoverNubbins = {
+                top: 'bottom',
+                bottom: 'top',
+                left: 'right',
+                right: 'left'
+            };
+            var popoverPositioningCSS = 'overflow: visible; display: block; position: absolute;';
+            var modifier = (settings.modifier != '') ? ' slds-popover--' + settings.modifier : '';
+            var theme = (settings.theme != '') ? ' slds-theme--' + settings.theme : '';
+            var popoverMarkup = '<div id="' + popoverId + '" aria-describedby="' + popoverId + '" class="slds-popover' + modifier + theme + ' slds-nubbin--' + (popoverNubbins[popoverPosition] || 'top') + '" style="' + popoverPositioningCSS +'">' +
+                                    '<div class="slds-popover__body"' + lineHeightFix + '>' +
+                                    popoverContent +
+                                    '</div>' +
+                                '</div>';
 
-        var popoverMarkup = '<div id="' + popoverId + '" aria-describedby="' + popoverId + '" class="slds-popover' + modifier + theme + ' slds-nubbin--' + (popoverNubbins[popoverPosition] || 'top') + '" style="' + popoverPositioningCSS +'">' +
-                                '<div class="slds-popover__body"' + lineHeightFix + '>' +
-                                popoverContent +
-                                '</div>' +
-                            '</div>';
-
-        if ($target.next('.slds-popover').length === 0) {
-            var $popoverNode = ($.aljs.scoped) ? $(popoverMarkup).appendTo('.slds') : $(popoverMarkup).appendTo('body');
-
-            var actualWidth  = $popoverNode[0].offsetWidth;
-            var actualHeight = $popoverNode[0].offsetHeight;// + 15;
-
-            var targetPos = getPosition($target)
-            var calculatedOffset = getCalculatedOffset(popoverPosition, targetPos, actualWidth, actualHeight);
-            applyPlacement(calculatedOffset, popoverPosition, actualWidth, actualHeight, $popoverNode);
+            if ($target.next('.slds-popover').length === 0) {
+                var $popoverNode = ($.aljs.scoped) ? (typeof($.aljs.scopingClass) === 'string') ? $(popoverMarkup).appendTo('.' + $.aljs.scopingClass) : $(popoverMarkup).appendTo('.slds-scope') : $(popoverMarkup).appendTo('body');
+                var actualWidth  = $popoverNode[0].offsetWidth;
+                var actualHeight = $popoverNode[0].offsetHeight;// + 15;
+                var targetPos = getPosition($target)
+                var calculatedOffset = getCalculatedOffset(popoverPosition, targetPos, actualWidth, actualHeight);
+                applyPlacement(calculatedOffset, popoverPosition, actualWidth, actualHeight, $popoverNode);
+            }
         }
     };
 
@@ -6280,7 +6559,6 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
         popover.offset(offset);
     }
-
 
     var getCalculatedOffset = function (placement, pos, actualWidth, actualHeight) {
         var posObj = {}
@@ -6362,7 +6640,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             // These are the defaults
         }, options );
 
-        this.each(function() {
+        this.each(function() {            
             $('#' + $(this).data('aljs-show')).addClass('slds-hide'); // Hide custom popover markup on init
         });
 
@@ -6385,6 +6663,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             return this.each(function() {
                 var thisSettings = JSON.parse(JSON.stringify(settings));
                 thisSettings.selector = this;
+                
                 $(this).on('mouseenter', thisSettings, showPopover)
                        .on('focusin', thisSettings, showPopover)
                        .on('mouseleave', thisSettings, hidePopover)

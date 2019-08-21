@@ -12,7 +12,8 @@ if (typeof jQuery === "undefined") { throw new Error("Appiphony Lightning JS req
     if (typeof $.aljs === 'undefined') {
         $.aljs = {
             assetsLocation: '',
-            scoped: false
+            scoped: true,
+            scopingClass: 'slds-scope'
         };
         
         $.aljsInit = function(options) {
@@ -122,11 +123,11 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             this.$elEndDate = $('#' + endDateId);
 
             if (options.endDate) {
-                this.setEndFullDate(endDate);
+                this.setSelectedEndDate(options.endDate);
             }
         }
         
-        this.initInteractivity();  
+        this.initInteractivity();
     };
 
     Datepicker.prototype = {
@@ -139,15 +140,15 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
 
             var openDatepicker = function(e) {
                 e.stopPropagation();
+                
                 // Close other datepickers
-                $('[data-aljs-datepicker-id]').not(this).each(function() {
+                $('[data-aljs-datepicker-id]').each(function() {
                     $(this).data('datepicker').closeDatepicker();
                 });
 
                 if ((e.target === $el[0] && ($el.val() !== null && $el.val() !== '')) || (e.target === $elEndDate[0] && ($elEndDate.val() !== null && $elEndDate.val() !== ''))) {
                     self.$selectedInput = $(this).parent().find('input');
-                    self.$selectedInput.on('keyup', self, self.processKeyup)
-                                       .on('blur', self, self.processBlur);
+                    self.$selectedInput.on('keyup', self, self.processKeyup);
                     self.closeDatepicker();
                 } else {
                     var initDate = self.selectedFullDate || moment();
@@ -155,46 +156,56 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
                     self.viewedYear = initDate.year();
                     self.fillMonth();
                     self.$selectedInput = $(this).parent().find('input');
-                    self.$selectedInput.off('keyup')
-                                       .off('blur');
-                    // if ($el.closest('.slds-form-element').next('.slds-datepicker').length > 0) {
-                    //     $datepickerEl.show();
-                    // } else {
-                    self.$selectedInput.closest('.slds-form-element').append($datepickerEl);   
+                    self.$selectedInput.off('keyup');
+                    self.$selectedInput.closest('.slds-form-element').append($datepickerEl);
+                    self.settings.onShow(self);
                     self.initYearDropdown();
                     $([$el, $datepickerEl, $elEndDate, $el.prev('svg')]).each(function() {
                         $(this).on('click', self.blockClose);
                     });         
                     $datepickerEl.on('click', self, self.processClick);
-                    //}  
-                    //if ()
-                    self.$selectedInput.blur();
-
+                    //self.$selectedInput.blur(); // Mimic Salesforce functionality
+                    
                     $('body').on('click', self, self.closeDatepicker);
                 }  
             };
 
             // Opening datepicker
-            $el.on('focus', openDatepicker);
+            //$el.on('focus', openDatepicker); // Removed by request of the Salesforce design team
+            $el.on('blur', self, self.processBlur);
+            $el.on('click', openDatepicker);
             $($el.prev('svg')).on('click', openDatepicker);
             $el.prev('svg').css('cursor', 'pointer');
 
             if ($elEndDate.length > 0) {
-                $($elEndDate).on('focus', openDatepicker);
-                $($elEndDate.prev('svg')).on('click', openDatepicker);
+                $elEndDate.on('blur', self, self.processBlur); // To do: fix this to pass in the correct end date datepicker
+                $elEndDate.on('focus', openDatepicker);
+                $elEndDate.prev('svg').on('click', openDatepicker);
                 $elEndDate.prev('svg').css('cursor', 'pointer');
             }
+        },
+        closeDatepicker: function(e) {
+            var self = this; 
+            var $target = $('body');
+            
+            if (e) {
+                self = e.data;
+                $target = $(this);
+            }
 
-            /* focus out?
-            $([$el, $datepickerEl.find('button')]).each(function() {
-                $(this).on('blur', function(e) {
-                    if ($(e.relatedTarget).closest('.slds-form--stacked').find($el).length === 0) {
-                        self.closeDatepicker();
-                    }
-                    //self.closeDatepicker();
-                });
-            });
-            */
+            var $datepickerEl = self.$datepickerEl;
+            var $selectedInput = self.$selectedInput;
+
+            if ($target.closest(self.$el.parent()).length === 0 && $selectedInput) {
+                var $selectedDatepickerEl = $selectedInput.closest('.slds-form-element').find('.slds-datepicker');
+                
+                if ($selectedDatepickerEl.length > 0) {
+                    self.settings.onDismiss(self);
+                    $selectedInput.closest('.slds-form-element').find('.slds-datepicker').remove();
+                }
+                $('body').unbind('click', self.closeDatepicker);
+                $datepickerEl.unbind('click', self.processClick);
+            }
         },
         fillMonth: function() {
             var self = this;
@@ -262,13 +273,8 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
                 var $yearDropdown = $('<label></label>')
 
                 $yearSelect = $('<select class="slds-select select picklist__label">').appendTo($yearDropdown);
-
-             //   var $yearContainer = $('<div id="aljs-yearDropdown" class="slds-dropdown slds-dropdown--menu">');
-             //   var $yearDropdown = $('<ul class="slds-dropdown__list" style="max-height: 13.5rem; overflow-y:auto;"></ul>').appendTo($yearContainer);
+                
                 var currentYear = moment().year();
-                // var selectedIconMarkup = ('<svg aria-hidden="true" class="slds-icon slds-icon--small slds-icon--left">' +
-                //                         '<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="{{assetsLocation}}/assets/icons/standard-sprite/svg/symbols.svg#task2" data-reactid=".46.0.0.1:$=10:0.0.$=11:0.0.0.0"></use>' +
-                //                     '</svg>').replace(/{{assetsLocation}}/g, this.settings.assetsLocation);
 
                 for (var i = currentYear - this.settings.numYearsBefore; i <= currentYear + this.settings.numYearsAfter; i++) {
                     var $yearOption = $('<option value="' + i + '">' + i + '</option>').appendTo($yearSelect);
@@ -280,7 +286,7 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             }
 
             $yearSelect.on('change', function(e) {
-                self.viewedYear = $(e.target).val();
+                self.viewedYear = parseInt($(e.target).val());
                 self.fillMonth();
             });
             
@@ -312,6 +318,7 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             // Fill previous month
             for (var i = numDaysInPrevMonth - (firstDayOfMonth - 1); i <= numDaysInPrevMonth; i++) {
                 var iDate = moment(new Date(previousMonth === 11 ? viewedYear - 1 : viewedYear, previousMonth, i));
+                
                 allDays.push({
                     value: i,
                     dateValue: this.getMMDDYYYY(previousMonth + 1, i, viewedYear),
@@ -323,6 +330,7 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             // Fill current month
             for (var i = 1; i <= numDaysInMonth; i++) {
                 var iDate = moment(new Date(viewedYear, viewedMonth, i));
+                
                 allDays.push({
                     value: i,
                     dateValue: this.getMMDDYYYY(viewedMonth + 1, i, viewedYear),
@@ -338,13 +346,10 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             allDays.forEach(function(day, index, allDays) {
                 if (index % 7 === 0) {
                     var hasMultiRowSelection = (index >= 7 && allDays[index - 1].isSelectedMulti && day.isSelectedMulti);
-                                                //|| (allDays[index + 6] && allDays[index + 6].isSelectedMulti === true 
-                                                //    && allDays[index + 7] && allDays[index + 7].isSelectedMulti === true);
                     
                     if (hasMultiRowSelection) {
                         calendarRows[calendarRows.length - 1].hasMultiRowSelection = true;
                     }
-
                     calendarRows.push({
                         data: [],
                         hasMultiRowSelection: hasMultiRowSelection
@@ -376,9 +381,18 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             var oldDate = this.selectedFullDate;
 
             this.selectedFullDate = selectedFullDate;
-            this.$el.val(selectedFullDate.format(this.settings.format));
+            
+            if (selectedFullDate !== '' && selectedFullDate !== null && typeof selectedFullDate !== 'undefined') {
+                this.$el.val(selectedFullDate.format(this.settings.format));
+                
+                if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf('Chrome') === -1) { // Addresses bug where Safari does not clear out visible placeholders on first value update
+                    this.$el.val(selectedFullDate.format(this.settings.format));     
+                }
+            } else {
+                this.$el.val('');
+            }
 
-            if (!oldDate || (!oldDate.isSame(selectedFullDate, 'day'))) {
+            if ((!oldDate && selectedFullDate != '') || (typeof(oldDate) === 'object' && !oldDate.isSame(selectedFullDate, 'day'))) {
                 this.settings.onChange(this);
             }
         },
@@ -386,9 +400,18 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             var oldDate = this.selectedEndDate;
 
             this.selectedEndDate = selectedEndDate;
-            this.$elEndDate.val(selectedEndDate.format(this.settings.format));
+            
+            if (selectedEndDate !== '' && selectedEndDate !== null && typeof selectedEndDate !== 'undefined') {
+                this.$elEndDate.val(selectedEndDate.format(this.settings.format));
+                
+                if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf('Chrome') === -1) { // Addresses bug where Safari does not clear out visible placeholders on first value update
+                    this.$elEndDate.val(selectedEndDate.format(this.settings.format));     
+                }
+            } else {
+                this.$elEndDate.val('');
+            }
 
-            if (!oldDate || (!oldDate.isSame(selectedEndDate, 'day'))) {
+            if ((!oldDate && selectedEndDate != '') || (typeof(oldDate) === 'object' && !oldDate.isSame(selectedEndDate, 'day'))) {
                 this.settings.onChange(this);
             }
         },
@@ -412,87 +435,98 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             if ($target.closest('li[data-aljs-year]').length > 0) {
                 self.clickYear(e);
             }
-
-            // if ($target.closest('#year').length > 0) {
-            //     self.clickYearDropdown(e);
-            // } else {
-            //     self.hideYearDropdown();
-            // }
         },
         processKeyup: function(e) {
-            if (e.keyCode === 13) {
-                $(this).blur();
-                // var self = e.data;
-                // var selectedDate = $(this).val();
-
-                // if (moment(selectedDate).isValid()) {
-                //     if (self.$elEndDate && self.$elEndDate.length > 0 && self.$elEndDate[0] === self.$selectedInput[0]) {
-                //         self.setSelectedEndDate(moment(selectedDate, self.settings.format));
-                //     } else {
-                //         self.setSelectedFullDate(moment(selectedDate, self.settings.format));
-                //     }
-
-                //     self.closeDatepicker(e);
-                //     $(this).blur();
-                // } 
-            }  
+            if (e.keyCode === 13) { // Return key
+                $(this).blur().off('keyup');
+            }
         },
         processBlur: function(e) {
             if (e) {
                 var self = e.data;
-                var selectedDate = $(this).val();
-                var momentSelectedDate = moment(selectedDate, self.settings.format);
-
-                if (momentSelectedDate.isValid()) {
-                    if (self.$elEndDate && self.$elEndDate.length > 0 && self.$elEndDate[0] === self.$selectedInput[0]) {
-                        self.setSelectedEndDate(momentSelectedDate);
-                    } else {
-                        self.setSelectedFullDate(momentSelectedDate);
+                
+                if (self.$elEndDate && self.$elEndDate.length > 0 && self.$elEndDate[0] === self.$selectedInput[0]) { // Check if current input is for an end date
+                    var selectedEndDate = self.$elEndDate.val();
+                    var momentSelectedEndDate = moment(selectedEndDate, self.settings.format);
+                    
+                    if (momentSelectedEndDate.isValid()) {
+                        self.setSelectedEndDate(momentSelectedEndDate);
+                        self.closeDatepicker(e);
+                        self.$selectedInput.off('keyup');
+                    } else if (!selectedEndDate.length) {
+                        self.setSelectedEndDate('');
                     }
-
-                    self.closeDatepicker(e);
-                    self.$selectedInput.off('keyup')
-                                       .off('blur');
-                    //$(this).blur();
-                } 
+                } else {
+                    var selectedFullDate = self.$el.val();
+                    var momentSelectedFullDate = moment(selectedFullDate, self.settings.format);
+                    
+                    if (momentSelectedFullDate.isValid()) {
+                        self.setSelectedFullDate(momentSelectedFullDate);
+                        self.closeDatepicker(e);
+                        self.$selectedInput.off('keyup');
+                    } else if (!selectedFullDate.length) {
+                        self.setSelectedFullDate('');
+                    }
+                }
             }  
         },
         clickPrev: function(e) {
             var self = e.data;
+            var currentYear = moment().year();
+            
             if (self.viewedMonth === 0) {
                 self.viewedMonth = 11;
-                self.viewedYear--;
                 
-                self.$datepickerEl.find('.slds-select option:selected')
-                    .prop('selected', false)
-                    .prev()
-                    .prop('selected', 'selected');
+                if (self.viewedYear === (currentYear - self.settings.numYearsBefore)) { // Allow looping
+                    self.viewedYear = currentYear + self.settings.numYearsAfter;
+                    self.$datepickerEl.find('.slds-select option:selected')
+                        .prop('selected', false);
+                    self.$datepickerEl.find('.slds-select option')
+                        .last()
+                        .prop('selected', 'selected');
+                } else {
+                    self.viewedYear--;
+                    self.$datepickerEl.find('.slds-select option:selected')
+                        .prop('selected', false)
+                        .prev()
+                        .prop('selected', 'selected');
+                }
             } else {
                 self.viewedMonth--;
             }
-
+            
             self.fillMonth();
         },
         clickNext: function(e) {
             var self = e.data;
-
+            var currentYear = moment().year();
+            
             if (self.viewedMonth === 11) {
                 self.viewedMonth = 0;
-                self.viewedYear++;
                 
-                self.$datepickerEl.find('.slds-select option:selected')
-                    .prop('selected', false)
-                    .next()
-                    .prop('selected', 'selected');
+                if (self.viewedYear === (currentYear + self.settings.numYearsAfter)) { // Allow looping
+                    self.viewedYear = currentYear - self.settings.numYearsBefore;
+                    self.$datepickerEl.find('.slds-select option:selected')
+                        .prop('selected', false);
+                    self.$datepickerEl.find('.slds-select option')
+                        .first()
+                        .prop('selected', 'selected');
+                } else {
+                    self.viewedYear++;
+                    self.$datepickerEl.find('.slds-select option:selected')
+                        .prop('selected', false)
+                        .next()
+                        .prop('selected', 'selected');
+                }
             } else {
                 self.viewedMonth++;
             }
-
+            
             self.fillMonth();
         },
         clickYear: function(e) {
             var self = e.data;
-
+            
             var $clickedYear = $(e.target).closest('li[data-aljs-year]');
             self.viewedYear = parseInt($clickedYear.data('aljs-year'));
             self.fillMonth();
@@ -519,27 +553,9 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
                     self.setSelectedFullDate(moment(selectedDate, 'MM/DD/YYYY'));
                 }
                 
-                self.closeDatepicker(e); 
-
+                self.settings.onSelect(self, moment(selectedDate, 'MM/DD/YYYY'));
+                self.closeDatepicker(e);
             }     
-        },
-        closeDatepicker: function(e) {
-            var self = this; 
-            var $target = $('body');
-            
-            if (e) {
-                self = e.data;
-                $target = $(this);
-            }
-
-            var $datepickerEl = self.$datepickerEl;
-            var $selectedInput = self.$selectedInput;
-
-            if ($target.closest(self.$el.parent()).length === 0 && $selectedInput) {
-                $selectedInput.closest('.slds-form-element').find('.slds-datepicker').remove();
-                $('body').unbind('click', self.closeDatepicker);
-                $datepickerEl.unbind('click', self.processClick);
-            }
         },
         blockClose: function(e) {
             e.stopPropagation();
@@ -578,6 +594,9 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             format: 'MM/DD/YYYY',
             endDateInputId: null,
             onChange: function(datepicker) {},
+            onShow: function(datepicker) {},
+            onDismiss: function(datepicker) {},
+            onSelect: function(datepicker, selectedDate) {},
             dayLabels: [
                 {
                     full: 'Sunday',
@@ -661,7 +680,6 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
             todayLabel: 'Today'
         }, typeof options === 'object' ? options : {});
 
-
         this.each(function() {
             var $this = $(this),
                 data = $this.data('datepicker');
@@ -682,7 +700,7 @@ if (typeof moment === "undefined") { throw new Error("The ALJS datepicker plugin
         }
 
         if (this.length > 1) {
-            throw new Error('Using only allowed for the collection of a single element (' + option + ' function)');
+            throw new Error('Usage only allowed for the collection of a single element (' + option + ' function)');
         } else {
             return internalReturn;
         }
@@ -816,7 +834,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var searchMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option">' +
+			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option" tabindex="1">' +
 				'<svg aria-hidden="true" class="slds-icon slds-icon--x-small slds-icon-text-default">' +
 					'<use xlink:href="{{assetsLocation}}/assets/icons/utility-sprite/svg/symbols.svg#search"></use>' +
 				'</svg>' +
@@ -828,7 +846,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var newItemMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option">' +
+			'<span class="slds-lookup__item-action slds-lookup__item-action--label" role="option" tabindex="1">' +
 				'<svg aria-hidden="true" class="slds-icon slds-icon--x-small slds-icon-text-default">' +
 					'<use xlink:href="{{assetsLocation}}/assets/icons/utility-sprite/svg/symbols.svg#add"></use>' +
 				'</svg>' +
@@ -838,7 +856,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var lookupResultItemMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-media slds-media--center" id="{{resultId}}" role="option" tabindex="1">' +
+			'<span class="slds-lookup__item-action slds-media" id="{{resultId}}" role="option" tabindex="1">' +
 				'<svg aria-hidden="true" class="{{objectIconClass}} slds-icon slds-icon--small slds-media__figure{{hasIcon}}">' +
 					'<use xlink:href="{{objectIconUrl}}"></use>' +
 				'</svg>' +
@@ -851,7 +869,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
 	var customLookupResultItemMarkup = 
 		'<li role="presentation">' +
-			'<span class="slds-lookup__item-action slds-media slds-media--center" id="{{resultId}}" role="option" tabindex="1">' +
+			'<span class="slds-lookup__item-action slds-media" id="{{resultId}}" role="option" tabindex="1">' +
                 '<img class="{{objectIconClass}} slds-icon slds-icon--small slds-media__figure{{hasIcon}}" src="{{objectIconUrl}}"/>' +
                 '<div class="slds-media__body">' +
                     '<div class="slds-lookup__result-text">{{resultLabel}}</div>' +
@@ -871,8 +889,15 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
        	if (this.isSingle) {
        		this.$singleSelect = $(selectContainerMarkup).insertBefore(this.$el);
        	} else {
-       		this.$multiSelect = $(selectContainerMarkup).appendTo(this.$lookupContainer.find('.slds-form-element'));
+       		this.$multiSelect = $(selectContainerMarkup).insertAfter(this.$lookupContainer.find('.slds-form-element__label'));
        		this.selectedResults = []; // We'll have to initialize.
+            
+            this.$multiSelect.css({
+                'padding': 0,
+                'margin-top': '-2px',
+                'margin-left': '-2px',
+                'border': 'none'
+            });
        	}
         
         if (!this.isStringEmpty(options.searchTerm)) {
@@ -885,6 +910,46 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         this.initLookup();
     };
     
+    var handleResultsKeyup = function(e) {
+        var $currentTarget = $(e.currentTarget);
+        
+        $currentTarget.removeClass('slds-has-focus');
+        
+        if (e.which === 38 || e.which === 40) { // Up or down arrow, respectively
+            e.preventDefault();
+            
+            var firstItemSelector = ($('.slds-lookup .slds-lookup__list > li:first-child').is('.slds-lookup__item--label')) ? '.slds-lookup .slds-lookup__list > li:nth-child(2) .slds-lookup__item-action' : '.slds-lookup .slds-lookup__list > li:first-child .slds-lookup__item-action';
+            
+            if (e.which === 38) { // Up arrow
+                if ($currentTarget.is(firstItemSelector)) { // Pressing up on the first item, loop over
+                    $('.slds-lookup .slds-lookup__list > li:last-child .slds-lookup__item-action')
+                        .focus()
+                        .addClass('slds-has-focus');
+                } else {
+                    $currentTarget.closest('li')
+                        .prev()
+                        .find('.slds-lookup__item-action')
+                        .focus()
+                        .addClass('slds-has-focus');
+                }
+            } else { // Down arrow
+                if ($currentTarget.is('.slds-lookup .slds-lookup__list > li:last-child .slds-lookup__item-action')) { // Pressing down on the last item, loop over
+                    $(firstItemSelector)
+                        .focus()
+                        .addClass('slds-has-focus');
+                } else {
+                    $currentTarget.closest('li')
+                        .next()
+                        .find('.slds-lookup__item-action')
+                        .focus()
+                        .addClass('slds-has-focus');
+                }
+            }
+        } else if (e.which === 13) { // Return key
+            $currentTarget.click();
+        }
+    }
+    
     Lookup.prototype = {
         constructor: Lookup,
         isStringEmpty: function(stringVal) {
@@ -895,7 +960,20 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
         	this.$el.on('focus', this, this.runSearch)
                 .on('blur', this, this.handleBlur)
-                .on('keyup', this, this.runSearch);
+                .on('keyup', this, this.handleKeyup);
+            
+            // Prevent multiple bindings
+            $('body').off('keyup', '.slds-lookup .slds-lookup__list .slds-lookup__item-action', handleResultsKeyup);
+            $('body').on('keyup', '.slds-lookup .slds-lookup__list .slds-lookup__item-action', handleResultsKeyup);
+        },
+        handleKeyup: function(e) {
+            if (e.which === 40) { // Down arrow
+                $('.slds-lookup .slds-lookup__list .slds-lookup__item-action').first()
+                    .focus()
+                    .addClass('slds-has-focus');
+            } else {
+                e.data.runSearch(e);
+            }
         },
         runSearch: function(e) {
             var self = e.data;
@@ -929,20 +1007,29 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                         .replace('{{assetsLocation}}', self.settings.assetsLocation)
                         .replace(/{{objectLabel}}/g, self.settings.objectLabel)
                         .replace(/{{selectedResultLabel}}/g, result.label));
-        			$pill.removeClass('slds-pill--bare')
+                    
+        			$pill.removeClass('slds-size--1-of-1')
                         .attr('id', result.id)
-                        .on('click', 'a, button', self, self.clearMultiSelectResult);
+                        .on('click', 'a, button', self, self.clearMultiSelectResult)
+                        .css({
+                            'margin': '2px',
+                            'display': 'inline-flex'
+                        })
+                        .find('.slds-pill__remove')
+                        .css({
+                            'vertical-align': '1px',
+                            'margin-left': '0.25rem'
+                        });
+                    
         			$multiSelect.append($pill);
         		});
                 
         		$multiSelect.addClass('slds-show')
                     .removeClass('slds-hide');
-        		$lookupContainer.addClass('slds-has-selection');
         	} else {
         		$multiSelect.html('');
         		$multiSelect.addClass('slds-hide')
                     .removeClass('slds-show');
-        		$lookupContainer.removeClass('slds-has-selection');
         	}
         },
         setSingleSelect: function(selectedResultLabel) {
@@ -970,7 +1057,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     .removeClass('slds-show');
                 
         		this.$el.val('')
-        			.removeClass('slds-hide')
+        			.removeClass('slds-hide');
+                
         		this.$lookupContainer.removeClass('slds-has-selection');
                 
         		setTimeout(function() {
@@ -1070,6 +1158,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         		var $newItem = $resultsListContainer.append(newItemMarkup
                     .replace('{{objectLabel}}', this.settings.objectLabel)
                     .replace('{{assetsLocation}}', $.aljs.assetsLocation));
+                
                 $newItem.next().on('click', function() {
                     $newItem.off('click');
                     
@@ -1079,14 +1168,16 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             
         	$resultsListContainer.one('click', '.slds-lookup__item-action[id]', this, this.clickResult)
             
-            var shouldAppendSearchContainer = this.searchResults.length > 0 || this.settings.onClickNew || showUseSection;
+            this.$lookupSearchContainer = $lookupSearchContainer.appendTo(this.$lookupContainer);
             
-            if (shouldAppendSearchContainer) {
-                this.$lookupSearchContainer = $lookupSearchContainer;
-                $lookupSearchContainer.appendTo(this.$lookupContainer);
+            var shouldShowSearchContainer = (this.searchResults.length > 0 && this.$el.closest('.slds-form-element').find('.slds-lookup__list > li').length > 0) || this.settings.onClickNew || showUseSection;
+            
+            if (shouldShowSearchContainer) {
                 this.$el.attr('aria-expanded', 'true')
                     .closest('.slds-lookup')
                     .addClass('slds-is-open');
+            } else {
+                this.$lookupSearchContainer.remove();
             }
         },
         closeSearchDropdown: function() {
@@ -1101,14 +1192,11 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                 .removeClass('slds-is-open');
         },
         handleBlur: function(e) {
-            var event = e;
         	var self = e.data;
             
-            setTimeout(function() {
-            	if ($(event.relatedTarget).closest('.slds-lookup.slds-is-open').length === 0 && self.$lookupSearchContainer) {
-            		self.closeSearchDropdown();
-            	}
-            }, 250);
+            if ($(e.relatedTarget).closest('.slds-lookup.slds-is-open').length === 0 && self.$lookupSearchContainer) {
+                self.closeSearchDropdown();
+            }
         },
         clickResult: function(e) {
         	var self = e.data;
@@ -1149,6 +1237,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         	var $clickedPill = $(this).closest('span.slds-pill');
         	var resultId = $clickedPill.attr('id');
         	var indexToRemove;
+            
+            self.closeSearchDropdown();
             
         	self.selectedResults.forEach(function(result, index) {
         		if (result.id == resultId) {
@@ -1266,8 +1356,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
     var aljsRefocusTarget = null; // Element to refocus on modal dismiss
     var isShowing, aljsScope;
     
-    function initModals() {
-        aljsScope = ($.aljs.scoped) ? '.slds' : aljsBodyTag;
+    function initModals() {        
+        aljsScope = ($.aljs.scoped) ? (typeof($.aljs.scopingClass) === 'string') ? '.' + $.aljs.scopingClass : '.slds-scope' :  aljsBodyTag;
         
         $('.slds-backdrop').remove(); // Remove any existing backdrops
         $(aljsScope).append('<div class="aljs-modal-container"></div>');
@@ -1311,16 +1401,16 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             var dismissModalElement = $(settings.dismissSelector);
             var modalElements = $('.slds-modal__header, .slds-modal__content, .slds-modal__footer');
             
-            function keyUpCheck(e) {
-                if (e.keyCode == 27 && aljsModals.is(':visible')) dismissModal(); // Esc key
+            function processKeyup(e) {
+                if (e.which == 27 && aljsModals.is(':visible')) dismissModal(); // Esc key
             }
             
             function dismissModal() {
                 modalObj.$el.modal('dismiss', settings)
                     .unbind('click');
-                $(aljsBodyTag).unbind('keyup', keyUpCheck);
                 aljsModals.unbind('click');
                 dismissModalElement.unbind('click');
+                $(aljsBodyTag).unbind('keyup', processKeyup);
             }
             
             switch (args) {
@@ -1338,21 +1428,10 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     $('.slds-backdrop').remove(); // Remove any existing backdrops
                     $('.aljs-modal-container').append('<div class="slds-backdrop"></div>');
                     
-                    $(aljsBodyTag).keyup(keyUpCheck);
                     modalObj.$el.addClass('slds-show')
                         .removeClass('slds-hide')
                         .attr('aria-hidden', 'false')
                         .attr('tabindex', 1);
-                    
-                    dismissModalElement.click(function(e) { // Bind events based on options
-                        e.preventDefault();
-                        dismissModal();
-                    });
-                    
-                    if (settings.backdropDismiss) {
-                        aljsModals.click(dismissModal);
-                        modalElements.click(function(e) { e.stopPropagation(); });
-                    }
                     
                     setTimeout(function() { // Ensure elements are displayed and rendered before adding classes
                         var backdrop = $('.slds-backdrop');
@@ -1360,6 +1439,18 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                             modalObj.$el.trigger('shown.aljs.modal'); // Custom aljs event
                             settings.onShown(modalObj);
                             isShowing = false;
+                            $(aljsBodyTag).unbind('keyup', processKeyup)
+                                .bind('keyup', processKeyup);
+                            
+                            dismissModalElement.click(function(e) { // Bind events based on options
+                                e.preventDefault();
+                                dismissModal();
+                            });
+                            
+                            if (settings.backdropDismiss) {
+                                aljsModals.click(dismissModal);
+                                modalElements.click(function(e) { e.stopPropagation(); });
+                            }
                         };
                         
                         backdrop.one('transitionend', handleTransitionEnd)
@@ -1374,9 +1465,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     if (!isShowing) {
                         var backdrop = $('.slds-backdrop');
                         var handleTransitionEnd = function() {
-                            if (!isShowing) {
-                                backdrop.remove();
-                            }
+                            if (!isShowing) backdrop.remove();
                             
                             aljsRefocusTarget = null;
                             modalObj.$el.addClass('slds-hide')
@@ -1395,6 +1484,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                         .attr('tabindex', -1);
                     
                     if (aljsRefocusTarget !== null) aljsRefocusTarget.focus();
+                    
                     modalObj.$el.trigger('dismiss.aljs.modal'); // Custom aljs event
                     break;
                     
@@ -1449,21 +1539,25 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
     multiSelect.prototype = {
         constructor: multiSelect,
         init: function() {
-            this.renderPicklists();
+            this.renderUnselectedItems();
+            this.renderSelectedItems();
 
-            this.$el.find('[data-aljs-multi-select="unselect"]').on('click', this, this.unselectOption);
-            this.$el.find('[data-aljs-multi-select="select"]').on('click', this, this.selectOption);
-            this.$el.find('[data-aljs-multi-select="move-up"]').on('click', this, this.moveOptionUp);
-            this.$el.find('[data-aljs-multi-select="move-down"]').on('click', this, this.moveOptionDown);
+            this.$el.find('[data-aljs-multi-select="unselect"]').on('click', this, this.unselectItem);
+            this.$el.find('[data-aljs-multi-select="select"]').on('click', this, this.selectItem);
+            this.$el.find('[data-aljs-multi-select="move-up"]').on('click', this, this.moveItemUp);
+            this.$el.find('[data-aljs-multi-select="move-down"]').on('click', this, this.moveItemDown);
         },
-        renderPicklists: function() {
-            var self = this;            
+        renderUnselectedItems: function() {
+            var self = this;
+            
+            this.$unselectedContainer.empty();
 
             this.unselectedItems.forEach(function(item) {
                 self.$unselectedContainer.append(self.createPicklistDomItem(item));
             });
 
             this.$unselectedContainer
+                .off()
                 .on('click', 'li', function(e) {
                     $(this).addClass('slds-is-selected')
                            .attr('aria-selected', 'true')
@@ -1474,6 +1568,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                 })
                 .on('dragstart', 'li', function(e) {
                     self.itemToSelect = $(this).data('aljs-picklist-obj');
+                
+                    e.originalEvent.dataTransfer.setData('text/plain', null);
                 })
                 .on('dragover', function(e) {
                     e.preventDefault();
@@ -1488,12 +1584,18 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     e.stopPropagation();
                     self.$el.find('[data-aljs-multi-select="unselect"]').click();
                 });
+        },
+        renderSelectedItems: function() {
+            var self = this;
+            
+            this.$selectedContainer.empty();
 
             this.selectedItems.forEach(function(item) {
                 self.$selectedContainer.append(self.createPicklistDomItem(item));
             });
 
             this.$selectedContainer
+                .off()
                 .on('click', 'li', function(e) {
                     $(this).addClass('slds-is-selected')
                            .attr('aria-selected', 'true')
@@ -1504,6 +1606,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                 })
                 .on('dragstart', 'li', function(e) {
                     self.itemToUnselect = $(this).data('aljs-picklist-obj');
+                    
+                    e.originalEvent.dataTransfer.setData('text/plain', null);
                 })
                 .on('dragover', function(e) {
                     e.preventDefault();
@@ -1519,33 +1623,39 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                     self.$el.find('[data-aljs-multi-select="select"]').click();
                 });
         },
-        selectOption: function(e) {
+        selectItem: function(e) {
             var self = e.data;
 
             if (self.itemToSelect) {
-                self.$unselectedContainer.find('#' + self.itemToSelect.id)
+                var item = self.$unselectedContainer.find('#' + self.itemToSelect.id)
                     .removeClass('slds-is-selected')
                     .attr('aria-selected', 'false')
                     .appendTo(self.$selectedContainer);
+                
                 self.unselectedItems.splice(self.unselectedItems.indexOf(self.itemToSelect), 1);
                 self.selectedItems.push(self.itemToSelect);
                 self.itemToSelect = null;
+                
+                self.settings.onSelectItem(self);
             }
         },
-        unselectOption: function(e) {
+        unselectItem: function(e) {
             var self = e.data;
 
             if (!self.itemToUnselect) { return; }
 
-            self.$selectedContainer.find('#' + self.itemToUnselect.id)
+            var item = self.$selectedContainer.find('#' + self.itemToUnselect.id)
                 .removeClass('slds-is-selected')
                 .attr('aria-selected', 'false')
                 .appendTo(self.$unselectedContainer);
+            
             self.selectedItems.splice(self.selectedItems.indexOf(self.itemToUnselect), 1);
             self.unselectedItems.push(self.itemToUnselect);
             self.itemToUnselect = null;
+            
+            self.settings.onUnselectItem(self);
         },
-        moveOptionUp: function(e) {
+        moveItemUp: function(e) {
             var self = e.data;
 
             if (!self.itemToUnselect) { return; }
@@ -1563,9 +1673,11 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                            .insertBefore($itemToMove.prev('li'));
 
                 self.itemToUnselect = null;
+                
+                self.settings.onMoveItem(self, 'up');
             }
         },
-        moveOptionDown: function(e) {
+        moveItemDown: function(e) {
             var self = e.data;
 
             if (!self.itemToUnselect) { return; }
@@ -1583,6 +1695,8 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                            .insertAfter($itemToMove.next('li'));
 
                 self.itemToUnselect = null;
+                
+                self.settings.onMoveItem(self, 'down');
             }
         },
         createPicklistDomItem: function(item) {
@@ -1591,34 +1705,13 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                                        .replace('{{optionLabel}}', item.label.toString()))
                                        .data('aljs-picklist-obj', item);
         },
-        setSelectedItems: function(ids) {
-            var self = this;
-            if (ids && ids.length > 0) {
-                var itemsToSelect = this.unselectedItems.filter(function(item) {
-                    return ids.indexOf(item.id) !== -1;
-                });
-
-                itemsToSelect.forEach(function(item) {
-                    self.itemToSelect = item;
-
-                    self.$el.find('[data-aljs-multi-select="select"]').click();
-                });
-            }
+        setSelectedItems: function(objs) {
+            this.selectedItems = objs;
+            this.renderSelectedItems();
         },
-        setUnselectedItems: function(ids) {
-            var self = this;
-
-            if (ids && ids.length > 0) {
-                var itemsToUnselect = this.selectedItems.filter(function(item) {
-                    return ids.indexOf(item.id) !== -1;
-                });
-
-                itemsToUnselect.forEach(function(item) {
-                    self.itemToUnselect = item;
-
-                    self.$el.find('[data-aljs-multi-select="unselect"]').click();
-                });
-            }
+        setUnselectedItems: function(objs) {
+            this.unselectedItems = objs;
+            this.renderUnselectedItems();
         },
         getSelectedItems: function() {
             return this.selectedItems;
@@ -1637,6 +1730,9 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             // These are the defaults
             selectedItems: [],
             unselectedItems: [],
+            onSelectItem: function(obj) {},
+            onUnselectItem: function(obj) {},
+            onMoveItem: function(obj, direction) {},
             assetsLocation: $.aljs.assetsLocation
         }, typeof options === 'object' ? options : {});
 
@@ -1727,9 +1823,13 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             var self = this;
             var $el = this.$el;
             
-            this.obj.$trigger = $('.slds-button', $el);
-            this.obj.$dropdown = $('.slds-dropdown', $el);
-            this.obj.$choices = $('.slds-dropdown__item a', $el);
+            this.obj.$trigger = $('.slds-lookup__search-input', $el);
+            this.obj.$dropdown = $('.slds-dropdown__list', $el);
+            this.obj.$choices = $('.slds-dropdown__list > li > span', $el).prop('tabindex', 1);
+            
+            this.$el.on('keyup', self, self.processKeypress)
+                .find('.slds-lookup__search-input + .slds-button')
+                .css('pointer-events', 'none');
                         
             this.obj.$trigger.unbind() // Prevent multiple bindings
                 .click(function(e) {
@@ -1749,22 +1849,16 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
                         if (self.obj.valueId === null || typeof self.obj.valueId === 'undefined') {
                             self.focusedIndex = null;
                         } else {
-                            self.focusedIndex = self.obj.$dropdown.find('li').index(self.obj.$dropdown.find('#' + self.obj.valueId));
+                            self.focusedIndex = self.obj.$dropdown.find('li > span').index(self.obj.$dropdown.find('#' + self.obj.valueId));
                         }
                         
                         self.focusOnElement();
-                        self.obj.$dropdown.on('keyup', self, self.processKeypress);
                     }
                 return false; // Prevent scrolling on keypress
                 });
             
             $('body').click(function() { 
                 self.$el.removeClass('slds-is-open');
-                self.obj.$dropdown.unbind('keyup', self.processKeypress);
-            }).keyup(function(e) {
-                if (e.keyCode === 27) { // Esc
-                    $('[data-aljs="picklist"]').picklist('close');
-                }
             });
             
         },
@@ -1772,18 +1866,41 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             var self = e.data;
             var optionsLength = self.obj.$choices.length;
             
-            switch (e.keyCode) {
-                case (40): // Down
-                    self.focusedIndex = self.focusedIndex === optionsLength - 1 ? 0 : self.focusedIndex + 1;
-                    self.focusOnElement();
-                    break;
-                case (38): // Up
-                    self.focusedIndex = self.focusedIndex === 0 ? optionsLength - 1 : self.focusedIndex - 1;
-                    self.focusOnElement();
-                    break;
-                case (27): // Esc
-                    self.$el.picklist('close');
-                    break;
+            
+            if (self.$el.hasClass('slds-is-open')) {
+                switch (e.which) {
+                    case (40): // Down
+                        if (self.focusedIndex === null) {
+                            self.focusedIndex = 0;
+                        } else {
+                            self.focusedIndex = self.focusedIndex === optionsLength - 1 ? 0 : self.focusedIndex + 1;
+                        }
+                        
+                        self.focusOnElement();
+                        break;
+                    case (38): // Up
+                        if (self.focusedIndex === null) {
+                            self.focusedIndex = optionsLength - 1;
+                        } else {
+                            self.focusedIndex = self.focusedIndex === 0 ? optionsLength - 1 : self.focusedIndex - 1;
+                        }
+                        
+                        self.focusOnElement();
+                        break;
+                    case (27): // Esc
+                        self.$el.picklist('close');
+                        break;
+                    case (13): // Return
+                        if (self.focusedIndex !== null) {
+                            var focusedId = self.obj.$choices.eq(self.focusedIndex).attr('id');
+                            
+                            self.setValueAndUpdateDom(focusedId);
+                        }
+                        break;
+                }
+            } else if (e.which === 13) { // Return
+                self.$el.addClass('slds-is-open');
+                self.focusOnElement();
             }
             
             return false; // Prevents scrolling
@@ -1795,40 +1912,41 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         },
         bindChoices: function() {
             var self = this;
-            this.obj.$valueContainer = $('> span', this.obj.$trigger);
+            this.obj.$valueContainer = $('.slds-lookup__search-input', this.$el);
             
             this.obj.$choices.unbind() // Prevent multiple bindings
                 .click(function(e) {
                     e.stopPropagation();
                 
-                    var optionId = $(this).closest('li').attr('id');
+                    var optionId = $(this).closest('span').attr('id');
                 
                     self.setValueAndUpdateDom(optionId);
-                    self.settings.onChange(self.obj);
                 });
         },
         setValueAndUpdateDom: function(optionId) {
-            var $li = this.$el.find('#' + optionId);
-            this.obj.value = $li.find('a').text();
+            var self = this;
+            var $span = self.$el.find('#' + optionId);
+            var index = self.obj.$choices.index($span);
+            
+            this.obj.value = $span.text().trim();
             this.obj.valueId = optionId;
             this.$el.removeClass('slds-is-open');
-            this.obj.$dropdown.unbind('keyup', this.processKeypress);
             
             this.obj.$trigger.trigger('change.aljs.picklist') // Custom aljs event
                 .focus();
-        
-            this.obj.$valueContainer.text(this.obj.value);
-            this.obj.$choices.parent()
-                .removeClass('slds-is-selected');
             
-            $li.addClass('slds-is-selected');
+            this.obj.$valueContainer.val(this.obj.value);
+            this.obj.$choices.removeClass('slds-is-selected');
+            
+            $span.addClass('slds-is-selected');
+            self.focusedIndex = index;
+            self.settings.onChange(self.obj);
         },
         setValue: function(optionId, callOnChange) {
             this.setValueAndUpdateDom(optionId);
             if (callOnChange) {
                 this.settings.onChange(this.obj);
             }
-            
         },
         getValueId: function() {
             return this.obj.valueId;
@@ -1838,7 +1956,6 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
         },
         close: function() {
             this.$el.removeClass('slds-is-open');
-            this.obj.$dropdown.unbind('keyup', this.processKeypress);
         }
     };
     
@@ -1914,45 +2031,45 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
     var nubbinWidth = 15;
 
     var showPopover = function(e) {
+        
         var settings = e.data;
         var $target = $(e.target).is($(settings.selector)) ? $(e.target) : $(e.target).closest(settings.selector || '[data-aljs="popover"]');
-
         var isMarkup = ($target.attr('data-aljs-show')) ? true : false;
-
-        if (!$target.attr('data-aljs-title')) {
+        
+        if (!$target.attr('data-aljs-title') && !isMarkup) {
             $target.attr('data-aljs-title', $target.attr('title'));
             $target.attr('title', '');
-            //$target.css('position', 'relative');
         }
-        var lineHeightFix = ($target.parent().hasClass('slds-button')) ? ' style="line-height: normal;"' : ''; // Adjust line height if popover is inside a button
-        var popoverId = $target.attr('data-aljs-id') || 'aljs-' + (new Date()).valueOf();
-        var popoverContent = (!isMarkup) ? htmlEncode($target.data('aljs-title')) : $('#' + $target.data('aljs-show')).html();
-        var popoverPosition = $target.attr('data-aljs-placement') || 'top';
-        var popoverNubbins = {
-            top: 'bottom',
-            bottom: 'top',
-            left: 'right',
-            right: 'left'
-        };
-        var popoverPositioningCSS = 'overflow: visible; display: inline-block; position: absolute;';
-        var modifier = (settings.modifier != '') ? ' slds-popover--' + settings.modifier : '';
-        var theme = (settings.theme != '') ? ' slds-theme--' + settings.theme : '';
+        
+        var popoverContent = (!isMarkup) ? htmlEncode($target.attr('data-aljs-title')) : $('#' + $target.data('aljs-show')).html();
+        
+        if (popoverContent.length > 0) {            
+            var lineHeightFix = ($target.parent().hasClass('slds-button')) ? ' style="line-height: normal;"' : ''; // Adjust line height if popover is inside a button
+            var popoverId = $target.attr('data-aljs-id') || 'aljs-' + (new Date()).valueOf();
+            var popoverPosition = $target.attr('data-aljs-placement') || 'top';
+            var popoverNubbins = {
+                top: 'bottom',
+                bottom: 'top',
+                left: 'right',
+                right: 'left'
+            };
+            var popoverPositioningCSS = 'overflow: visible; display: block; position: absolute;';
+            var modifier = (settings.modifier != '') ? ' slds-popover--' + settings.modifier : '';
+            var theme = (settings.theme != '') ? ' slds-theme--' + settings.theme : '';
+            var popoverMarkup = '<div id="' + popoverId + '" aria-describedby="' + popoverId + '" class="slds-popover' + modifier + theme + ' slds-nubbin--' + (popoverNubbins[popoverPosition] || 'top') + '" style="' + popoverPositioningCSS +'">' +
+                                    '<div class="slds-popover__body"' + lineHeightFix + '>' +
+                                    popoverContent +
+                                    '</div>' +
+                                '</div>';
 
-        var popoverMarkup = '<div id="' + popoverId + '" aria-describedby="' + popoverId + '" class="slds-popover' + modifier + theme + ' slds-nubbin--' + (popoverNubbins[popoverPosition] || 'top') + '" style="' + popoverPositioningCSS +'">' +
-                                '<div class="slds-popover__body"' + lineHeightFix + '>' +
-                                popoverContent +
-                                '</div>' +
-                            '</div>';
-
-        if ($target.next('.slds-popover').length === 0) {
-            var $popoverNode = ($.aljs.scoped) ? $(popoverMarkup).appendTo('.slds') : $(popoverMarkup).appendTo('body');
-
-            var actualWidth  = $popoverNode[0].offsetWidth;
-            var actualHeight = $popoverNode[0].offsetHeight;// + 15;
-
-            var targetPos = getPosition($target)
-            var calculatedOffset = getCalculatedOffset(popoverPosition, targetPos, actualWidth, actualHeight);
-            applyPlacement(calculatedOffset, popoverPosition, actualWidth, actualHeight, $popoverNode);
+            if ($target.next('.slds-popover').length === 0) {
+                var $popoverNode = ($.aljs.scoped) ? (typeof($.aljs.scopingClass) === 'string') ? $(popoverMarkup).appendTo('.' + $.aljs.scopingClass) : $(popoverMarkup).appendTo('.slds-scope') : $(popoverMarkup).appendTo('body');
+                var actualWidth  = $popoverNode[0].offsetWidth;
+                var actualHeight = $popoverNode[0].offsetHeight;// + 15;
+                var targetPos = getPosition($target)
+                var calculatedOffset = getCalculatedOffset(popoverPosition, targetPos, actualWidth, actualHeight);
+                applyPlacement(calculatedOffset, popoverPosition, actualWidth, actualHeight, $popoverNode);
+            }
         }
     };
 
@@ -1978,7 +2095,6 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
 
         popover.offset(offset);
     }
-
 
     var getCalculatedOffset = function (placement, pos, actualWidth, actualHeight) {
         var posObj = {}
@@ -2060,7 +2176,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             // These are the defaults
         }, options );
 
-        this.each(function() {
+        this.each(function() {            
             $('#' + $(this).data('aljs-show')).addClass('slds-hide'); // Hide custom popover markup on init
         });
 
@@ -2083,6 +2199,7 @@ if (typeof jQuery.aljs === "undefined") { throw new Error("Please include the AL
             return this.each(function() {
                 var thisSettings = JSON.parse(JSON.stringify(settings));
                 thisSettings.selector = this;
+                
                 $(this).on('mouseenter', thisSettings, showPopover)
                        .on('focusin', thisSettings, showPopover)
                        .on('mouseleave', thisSettings, hidePopover)
